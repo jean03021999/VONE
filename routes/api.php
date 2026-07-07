@@ -13,3 +13,11 @@ Route::post('/auth/verifier-otp', [AuthController::class, 'verifierOtp']);
 Route::post('/auth/renvoyer-otp', [AuthController::class, 'renvoyerOtp']);
 Route::post('/auth/mot-de-passe-oublie', [AuthController::class, 'motDePasseOublie']);
 Route::post('/auth/reinitialiser-mot-de-passe', [AuthController::class, 'reinitialiserMotDePasse']);
+
+Route::middleware(['auth:sanctum', 'permission:eleves.voir'])->get('/test-permission', function () {
+    return response()->json(['message' => 'Acces autorise, vous avez la permission eleves.voir']);
+});
+
+Route::middleware(['auth:sanctum', 'permission:paiements.supprimer'])->get('/test-permission-refusee', function () {
+    return response()->json(['message' => 'Ceci ne devrait jamais s afficher']);
+});

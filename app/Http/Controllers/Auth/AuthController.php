@@ -97,9 +97,12 @@ class AuthController extends Controller
 
         $otp->update(['utilise' => true]);
 
+        $token = $user->createToken('auth-token')->plainTextToken;
+
         $reponse = [
             'message' => 'Connexion reussie',
             'user' => $user,
+            'token' => $token,
         ];
 
         if ($request->boolean('faire_confiance_appareil')) {
@@ -220,3 +223,4 @@ class AuthController extends Controller
         return $code;
     }
 }
+

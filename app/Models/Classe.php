@@ -9,7 +9,7 @@ class Classe extends Model
     protected $table = 'classes';
 
     protected $fillable = [
-        'etablissement_id', 'session_scolaire_id', 'nom', 'niveau',
+        'etablissement_id', 'session_scolaire_id', 'nom', 'niveau', 'filiere_id',
     ];
 
     public function etablissement()
@@ -26,4 +26,11 @@ class Classe extends Model
     {
         return $this->hasMany(Eleve::class, 'classe_id');
     }
+
+    public function filiere()
+    {
+        return $this->belongsTo(Filiere::class);
+    }
 }
+
+

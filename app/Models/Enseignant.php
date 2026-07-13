@@ -10,13 +10,18 @@ class Enseignant extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'etablissement_id', 'nom', 'prenom', 'matricule', 'date_naissance',
+        'etablissement_id', 'user_id', 'nom', 'prenom', 'matricule', 'date_naissance',
         'lieu_naissance', 'telephone', 'email', 'photo_path', 'diplome',
     ];
 
     public function etablissement()
     {
         return $this->belongsTo(Etablissement::class);
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function contrats()
@@ -34,3 +39,5 @@ class Enseignant extends Model
         return $this->hasMany(Affectation::class);
     }
 }
+
+

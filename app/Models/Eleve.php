@@ -40,8 +40,26 @@ class Eleve extends Model
         return $this->hasMany(Paiement::class);
     }
 
+    public function fraisEleves()
+    {
+        return $this->hasMany(FraisEleve::class);
+    }
+
     public function getStatutPaiementAttribute()
     {
-        return $this->paiements()->exists() ? 'a_jour' : 'en_retard';
+        $echeances = EcheanceEleve::whereIn('frais_eleve_id', $this->fraisEleves()->pluck('id'))->get();
+
+        if ($echeances->isEmpty()) {
+            return 'aucun_frais';
+        }
+
+        foreach ($echeances as $echeance) {
+            if ($echeance->statut === 'en_retard') {
+                return 'en_retard';
+            }
+        }
+
+        return 'a_jour';
     }
 }
+

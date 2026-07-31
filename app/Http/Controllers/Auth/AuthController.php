@@ -45,10 +45,13 @@ class AuthController extends Controller
                 ->first();
 
             if ($appareil) {
+                $token = $user->createToken('auth-token')->plainTextToken;
+
                 return response()->json([
                     'message' => 'Connexion reussie',
                     'user' => $user,
                     'otp_requis' => false,
+                    'token' => $token,
                 ]);
             }
         }
@@ -223,4 +226,5 @@ class AuthController extends Controller
         return $code;
     }
 }
+
 

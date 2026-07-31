@@ -30,3 +30,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/eleves', [EleveController::class, 'store'])->middleware('permission:eleves.gerer');
     Route::put('/eleves/{id}', [EleveController::class, 'update'])->middleware('permission:eleves.gerer');
 });
+
+use App\Http\Controllers\ClasseController;
+
+Route::middleware(['auth:sanctum'])->get('/classes', [ClasseController::class, 'index']);

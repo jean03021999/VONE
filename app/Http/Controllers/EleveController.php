@@ -107,6 +107,14 @@ class EleveController extends Controller
                 'telephone' => $request->mere_telephone,
             ]);
         }
+        if ($request->filled('tuteur_nom')) {
+            $eleve->filiations()->create([
+                'type_lien' => 'tuteur',
+                'nom_complet' => $request->tuteur_nom,
+                'telephone' => $request->tuteur_telephone,
+                'lien_avec_eleve' => $request->tuteur_lien,
+            ]);
+        }
 
         return response()->json($eleve->load('filiations'), 201);
     }
@@ -123,3 +131,4 @@ class EleveController extends Controller
         return response()->json($eleve);
     }
 }
+

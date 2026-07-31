@@ -21,3 +21,12 @@ Route::middleware(['auth:sanctum', 'permission:eleves.voir'])->get('/test-permis
 Route::middleware(['auth:sanctum', 'permission:paiements.supprimer'])->get('/test-permission-refusee', function () {
     return response()->json(['message' => 'Ceci ne devrait jamais s afficher']);
 });
+
+use App\Http\Controllers\EleveController;
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/eleves', [EleveController::class, 'index'])->middleware('permission:eleves.voir');
+    Route::get('/eleves/{id}', [EleveController::class, 'show'])->middleware('permission:eleves.voir');
+    Route::post('/eleves', [EleveController::class, 'store'])->middleware('permission:eleves.gerer');
+    Route::put('/eleves/{id}', [EleveController::class, 'update'])->middleware('permission:eleves.gerer');
+});

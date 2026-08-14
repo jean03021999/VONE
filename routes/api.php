@@ -34,3 +34,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
 use App\Http\Controllers\ClasseController;
 
 Route::middleware(['auth:sanctum'])->get('/classes', [ClasseController::class, 'index']);
+
+use App\Http\Controllers\EleveImportController;
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::post('/eleves/import/analyser', [EleveImportController::class, 'analyser'])->middleware('permission:eleves.gerer');
+    Route::post('/eleves/import/executer', [EleveImportController::class, 'executer'])->middleware('permission:eleves.gerer');
+});

@@ -79,7 +79,11 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
         $classe = \App\Models\Classe::findOrFail($request->classe_id);
 
-        $matricule = 'LAK-' . date('Y') . '-' . str_pad(Eleve::where('etablissement_id', $etablissementId)->count() + 1, 3, '0', STR_PAD_LEFT);
+        do {
+            $dernier = Eleve::withTrashed()->where('matricule', 'like', 'LAK-' . date('Y') . '-%')->count();
+            $matricule = 'LAK-' . date('Y') . '-' . str_pad($dernier + 1, 3, '0', STR_PAD_LEFT);
+            $dernier++;
+        } while (Eleve::withTrashed()->where('matricule', $matricule)->exists());
 
         $eleve = Eleve::create([
             'etablissement_id' => $etablissementId,
@@ -131,4 +135,6 @@ class EleveController extends Controller
         return response()->json($eleve);
     }
 }
+
+
 

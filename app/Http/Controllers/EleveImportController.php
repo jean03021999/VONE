@@ -286,6 +286,30 @@ class EleveImportController extends Controller
         ]);
     }
 
+    public function telechargerModele()
+    {
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $feuille = $spreadsheet->getActiveSheet();
+
+        $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere'];
+        $feuille->fromArray($entetes, null, 'A1');
+
+        $exemple = ['Diallo', 'Aminata', 'LAK-2026-001', '6eme A', '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305'];
+        $feuille->fromArray($exemple, null, 'A2');
+
+        foreach (range('A', 'J') as $colonne) {
+            $feuille->getColumnDimension($colonne)->setAutoSize(true);
+        }
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+        $nomFichier = 'modele_import_eleves_lakoli.xlsx';
+        $chemin = storage_path('app/' . $nomFichier);
+        $writer->save($chemin);
+
+        return response()->download($chemin)->deleteFileAfterSend(true);
+    }
+
     public function executer(Request $request)
     {
         $etablissementId = $request->user()->etablissement_id;
@@ -335,4 +359,5 @@ class EleveImportController extends Controller
         return response()->json(['importes' => $importes]);
     }
 }
+
 

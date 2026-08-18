@@ -41,3 +41,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/eleves/import/analyser', [EleveImportController::class, 'analyser'])->middleware('permission:eleves.gerer');
     Route::post('/eleves/import/executer', [EleveImportController::class, 'executer'])->middleware('permission:eleves.gerer');
 });
+
+Route::middleware(['auth:sanctum'])->get('/eleves/import/modele', [App\Http\Controllers\EleveImportController::class, 'telechargerModele']);
+
+use App\Http\Controllers\EnseignantController;
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/enseignants', [EnseignantController::class, 'index'])->middleware('permission:enseignants.voir');
+    Route::get('/enseignants/{id}', [EnseignantController::class, 'show'])->middleware('permission:enseignants.voir');
+    Route::post('/enseignants', [EnseignantController::class, 'store'])->middleware('permission:enseignants.gerer');
+    Route::put('/enseignants/{id}', [EnseignantController::class, 'update'])->middleware('permission:enseignants.gerer');
+});
+
+use App\Http\Controllers\MatiereController;
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/matieres', [MatiereController::class, 'index'])->middleware('permission:enseignants.voir');
+    Route::post('/matieres', [MatiereController::class, 'store'])->middleware('permission:enseignants.gerer');
+    Route::post('/filieres', [MatiereController::class, 'storeFiliere'])->middleware('permission:enseignants.gerer');
+});

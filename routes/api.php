@@ -9,6 +9,7 @@ use App\Http\Controllers\EleveImportController;
 use App\Http\Controllers\EnseignantController;
 use App\Http\Controllers\MatiereController;
 use App\Http\Controllers\FraisController;
+use App\Http\Controllers\EmploiDuTempsController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -38,7 +39,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/eleves/import/modele', [EleveImportController::class, 'telechargerModele']);
 });
 
-Route::middleware(['auth:sanctum'])->get('/classes', [ClasseController::class, 'index']);
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/classes', [ClasseController::class, 'index']);
+    Route::post('/classes', [ClasseController::class, 'store'])->middleware('permission:enseignants.gerer');
+});
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/enseignants', [EnseignantController::class, 'index'])->middleware('permission:enseignants.voir');
@@ -61,3 +65,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve']);
     Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:eleves.gerer');
 });
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/emploi-du-temps/{classeId}', [EmploiDuTempsController::class, 'index']);
+    Route::post('/emploi-du-temps', [EmploiDuTempsController::class, 'store'])->middleware('permission:enseignants.gerer');
+    Route::delete('/emploi-du-temps/{id}', [EmploiDuTempsController::class, 'destroy'])->middleware('permission:enseignants.gerer');
+});
+

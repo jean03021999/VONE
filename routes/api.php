@@ -10,6 +10,8 @@ use App\Http\Controllers\EnseignantController;
 use App\Http\Controllers\MatiereController;
 use App\Http\Controllers\FraisController;
 use App\Http\Controllers\EmploiDuTempsController;
+use App\Http\Controllers\PeriodeController;
+use App\Http\Controllers\EvaluationController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -72,3 +74,19 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/emploi-du-temps/{id}', [EmploiDuTempsController::class, 'destroy'])->middleware('permission:enseignants.gerer');
 });
 
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/periodes', [PeriodeController::class, 'index']);
+    Route::post('/periodes', [PeriodeController::class, 'store'])->middleware('permission:enseignants.gerer');
+
+    Route::get('/mes-affectations', [EvaluationController::class, 'mesAffectations']);
+    Route::get('/evaluations', [EvaluationController::class, 'index']);
+    Route::post('/evaluations', [EvaluationController::class, 'store'])->middleware('permission:notes.saisir');
+    Route::get('/evaluations/{id}', [EvaluationController::class, 'show']);
+    Route::put('/evaluations/{id}/notes', [EvaluationController::class, 'saisirNotes'])->middleware('permission:notes.saisir');
+    Route::post('/evaluations/{id}/soumettre', [EvaluationController::class, 'soumettre'])->middleware('permission:notes.soumettre');
+    Route::post('/evaluations/{id}/valider', [EvaluationController::class, 'valider'])->middleware('permission:notes.valider');
+    Route::post('/evaluations/{id}/rejeter', [EvaluationController::class, 'rejeter'])->middleware('permission:notes.valider');
+    Route::post('/evaluations/{id}/reprendre', [EvaluationController::class, 'reprendre'])->middleware('permission:notes.saisir');
+    Route::post('/evaluations/{id}/publier', [EvaluationController::class, 'publier'])->middleware('permission:notes.publier');
+});

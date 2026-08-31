@@ -12,6 +12,8 @@ use App\Http\Controllers\FraisController;
 use App\Http\Controllers\EmploiDuTempsController;
 use App\Http\Controllers\PeriodeController;
 use App\Http\Controllers\EvaluationController;
+use App\Http\Controllers\BulletinController;
+use App\Http\Controllers\AffectationController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -89,4 +91,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/evaluations/{id}/rejeter', [EvaluationController::class, 'rejeter'])->middleware('permission:notes.valider');
     Route::post('/evaluations/{id}/reprendre', [EvaluationController::class, 'reprendre'])->middleware('permission:notes.saisir');
     Route::post('/evaluations/{id}/publier', [EvaluationController::class, 'publier'])->middleware('permission:notes.publier');
+});
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::post('/bulletins/generer', [BulletinController::class, 'genererPourClasse'])->middleware('permission:bulletins.generer');
+    Route::get('/bulletins/par-classe', [BulletinController::class, 'parClasse'])->middleware('permission:bulletins.voir');
+    Route::get('/bulletins/{id}', [BulletinController::class, 'show'])->middleware('permission:bulletins.voir');
+});
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/affectations', [AffectationController::class, 'index'])->middleware('permission:enseignants.voir');
+    Route::post('/affectations', [AffectationController::class, 'store'])->middleware('permission:enseignants.gerer');
+    Route::delete('/affectations/{id}', [AffectationController::class, 'destroy'])->middleware('permission:enseignants.gerer');
 });

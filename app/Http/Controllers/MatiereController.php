@@ -41,6 +41,7 @@ class MatiereController extends Controller
                 'filiere_id' => $request->filiere_id,
                 'niveau' => $request->niveau,
                 'coefficient' => $request->coefficient,
+                'compte_dans_moyenne' => $request->boolean('compte_dans_moyenne', true),
             ]);
         }
 
@@ -62,3 +63,4 @@ class MatiereController extends Controller
         return response()->json($filiere, 201);
     }
 }
+

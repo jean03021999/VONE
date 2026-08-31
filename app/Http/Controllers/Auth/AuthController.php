@@ -36,17 +36,26 @@ class AuthController extends Controller
             ]);
         }
 
-        $tokenAppareil = $request->cookie('device_token') ?? $request->header('X-Device-Token');
+        // MODE DEVELOPPEMENT : OTP desactive en local
+        // Retirer ce bloc avant la mise en production
+        if (app()->environment('local')) {
+            $token = $user->createToken('auth-token')->plainTextToken;
+            return response()->json([
+                'message' => 'Connexion reussie',
+                'user' => $user,
+                'otp_requis' => false,
+                'token' => $token,
+            ]);
+        }
 
+        $tokenAppareil = $request->cookie('device_token') ?? $request->header('X-Device-Token');
         if ($tokenAppareil) {
             $appareil = AppareilConfiance::where('user_id', $user->id)
                 ->where('token_appareil', $tokenAppareil)
                 ->where('date_expiration', '>', now())
                 ->first();
-
             if ($appareil) {
                 $token = $user->createToken('auth-token')->plainTextToken;
-
                 return response()->json([
                     'message' => 'Connexion reussie',
                     'user' => $user,
@@ -57,7 +66,6 @@ class AuthController extends Controller
         }
 
         $code = $this->genererOtp($user, 'connexion');
-
         return response()->json([
             'message' => 'Code de verification envoye',
             'otp_requis' => true,
@@ -99,7 +107,6 @@ class AuthController extends Controller
         }
 
         $otp->update(['utilise' => true]);
-
         $token = $user->createToken('auth-token')->plainTextToken;
 
         $reponse = [
@@ -110,14 +117,12 @@ class AuthController extends Controller
 
         if ($request->boolean('faire_confiance_appareil')) {
             $tokenAppareil = Str::random(64);
-
             AppareilConfiance::create([
                 'user_id' => $user->id,
                 'token_appareil' => $tokenAppareil,
                 'nom_appareil' => $request->header('User-Agent'),
-                'date_expiration' => now()->addDays(30),
+                'date_expiration' => now()->addDays(365),
             ]);
-
             $reponse['device_token'] = $tokenAppareil;
         }
 
@@ -127,7 +132,6 @@ class AuthController extends Controller
     public function renvoyerOtp(Request $request)
     {
         $request->validate(['identifiant' => 'required|string']);
-
         $user = User::where('email', $request->identifiant)
             ->orWhere('telephone', $request->identifiant)
             ->first();
@@ -139,7 +143,6 @@ class AuthController extends Controller
         }
 
         $code = $this->genererOtp($user, 'connexion');
-
         return response()->json([
             'message' => 'Nouveau code envoye',
             'code_dev_uniquement' => $code,
@@ -149,19 +152,15 @@ class AuthController extends Controller
     public function motDePasseOublie(Request $request)
     {
         $request->validate(['identifiant' => 'required|string']);
-
         $user = User::where('email', $request->identifiant)
             ->orWhere('telephone', $request->identifiant)
             ->first();
 
         if (!$user) {
-            return response()->json([
-                'message' => 'Si ce compte existe, un code a ete envoye.',
-            ]);
+            return response()->json(['message' => 'Si ce compte existe, un code a ete envoye.']);
         }
 
         $code = $this->genererOtp($user, 'mot_de_passe_oublie');
-
         return response()->json([
             'message' => 'Code de reinitialisation envoye',
             'code_dev_uniquement' => $code,
@@ -201,20 +200,14 @@ class AuthController extends Controller
         }
 
         $otp->update(['utilise' => true]);
+        $user->update(['password' => Hash::make($request->nouveau_mot_de_passe)]);
 
-        $user->update([
-            'password' => Hash::make($request->nouveau_mot_de_passe),
-        ]);
-
-        return response()->json([
-            'message' => 'Mot de passe reinitialise avec succes',
-        ]);
+        return response()->json(['message' => 'Mot de passe reinitialise avec succes']);
     }
 
     private function genererOtp(User $user, string $type): string
     {
         $code = (string) random_int(100000, 999999);
-
         OtpCode::create([
             'user_id' => $user->id,
             'code' => $code,
@@ -222,9 +215,6 @@ class AuthController extends Controller
             'expire_at' => now()->addMinutes(5),
             'utilise' => false,
         ]);
-
         return $code;
     }
 }
-
-

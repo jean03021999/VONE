@@ -9,11 +9,11 @@ use Illuminate\Database\Seeder;
 
 class RolePermissionSeeder extends Seeder
 {
-    private const CODE_ETABLISSEMENT_PILOTE = 'TEST-001';
+    private const CODES_ETABLISSEMENTS_CIBLES = ['TEST-001', 'TEST-002'];
 
     public function run(): void
     {
-        $etablissement = Etablissement::where('code', self::CODE_ETABLISSEMENT_PILOTE)->firstOrFail();
+        $etablissements = Etablissement::whereIn('code', self::CODES_ETABLISSEMENTS_CIBLES)->get();
 
         // Catalogue explicite (et non Permission::pluck('nom')) pour ne pas hériter
         // d'anciennes permissions orphelines eventuellement presentes en base.
@@ -72,11 +72,13 @@ class RolePermissionSeeder extends Seeder
             );
             $modele->permissions()->sync($idsPermissions);
 
-            $instance = Role::updateOrCreate(
-                ['nom' => $nomRole, 'etablissement_id' => $etablissement->id],
-                ['description' => "Role {$nomRole}", 'est_modele' => false]
-            );
-            $instance->permissions()->sync($idsPermissions);
+            foreach ($etablissements as $etablissement) {
+                $instance = Role::updateOrCreate(
+                    ['nom' => $nomRole, 'etablissement_id' => $etablissement->id],
+                    ['description' => "Role {$nomRole}", 'est_modele' => false]
+                );
+                $instance->permissions()->sync($idsPermissions);
+            }
         }
     }
 }

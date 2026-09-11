@@ -16,7 +16,12 @@ class VerifierPermission
             return response()->json(['message' => 'Non authentifie.'], 401);
         }
 
+        if (!$user->etablissement_id) {
+            return response()->json(['message' => 'Utilisateur non rattache a un etablissement.'], 403);
+        }
+
         $possedePermission = $user->roles()
+            ->where('roles.etablissement_id', $user->etablissement_id)
             ->whereHas('permissions', function ($query) use ($permission) {
                 $query->where('nom', $permission);
             })

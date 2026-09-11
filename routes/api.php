@@ -36,55 +36,55 @@ Route::middleware(['auth:sanctum', 'permission:paiements.supprimer'])->get('/tes
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/eleves', [EleveController::class, 'index'])->middleware('permission:eleves.voir');
     Route::get('/eleves/{id}', [EleveController::class, 'show'])->middleware('permission:eleves.voir');
-    Route::post('/eleves', [EleveController::class, 'store'])->middleware('permission:eleves.gerer');
-    Route::put('/eleves/{id}', [EleveController::class, 'update'])->middleware('permission:eleves.gerer');
-    Route::post('/eleves/import/analyser', [EleveImportController::class, 'analyser'])->middleware('permission:eleves.gerer');
-    Route::post('/eleves/import/executer', [EleveImportController::class, 'executer'])->middleware('permission:eleves.gerer');
+    Route::post('/eleves', [EleveController::class, 'store'])->middleware('permission:eleves.creer');
+    Route::put('/eleves/{id}', [EleveController::class, 'update'])->middleware('permission:eleves.modifier');
+    Route::post('/eleves/import/analyser', [EleveImportController::class, 'analyser'])->middleware('permission:eleves.importer');
+    Route::post('/eleves/import/executer', [EleveImportController::class, 'executer'])->middleware('permission:eleves.importer');
     Route::get('/eleves/import/modele', [EleveImportController::class, 'telechargerModele']);
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/classes', [ClasseController::class, 'index']);
-    Route::post('/classes', [ClasseController::class, 'store'])->middleware('permission:enseignants.gerer');
+    Route::get('/classes', [ClasseController::class, 'index'])->middleware('permission:classes.voir');
+    Route::post('/classes', [ClasseController::class, 'store'])->middleware('permission:classes.gerer');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/enseignants', [EnseignantController::class, 'index'])->middleware('permission:enseignants.voir');
     Route::get('/enseignants/{id}', [EnseignantController::class, 'show'])->middleware('permission:enseignants.voir');
-    Route::post('/enseignants', [EnseignantController::class, 'store'])->middleware('permission:enseignants.gerer');
-    Route::put('/enseignants/{id}', [EnseignantController::class, 'update'])->middleware('permission:enseignants.gerer');
+    Route::post('/enseignants', [EnseignantController::class, 'store'])->middleware('permission:enseignants.creer');
+    Route::put('/enseignants/{id}', [EnseignantController::class, 'update'])->middleware('permission:enseignants.creer');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/matieres', [MatiereController::class, 'index'])->middleware('permission:enseignants.voir');
-    Route::post('/matieres', [MatiereController::class, 'store'])->middleware('permission:enseignants.gerer');
-    Route::post('/filieres', [MatiereController::class, 'storeFiliere'])->middleware('permission:enseignants.gerer');
+    Route::post('/matieres', [MatiereController::class, 'store'])->middleware('permission:matieres.gerer');
+    Route::post('/filieres', [MatiereController::class, 'storeFiliere'])->middleware('permission:matieres.gerer');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/frais/types', [FraisController::class, 'typesFrais']);
-    Route::post('/frais/types', [FraisController::class, 'storeTypeFrais'])->middleware('permission:eleves.gerer');
-    Route::get('/frais/grilles', [FraisController::class, 'grilles']);
-    Route::post('/frais/grilles', [FraisController::class, 'storeGrille'])->middleware('permission:eleves.gerer');
-    Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve']);
-    Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:eleves.gerer');
+    Route::get('/frais/types', [FraisController::class, 'typesFrais'])->middleware('permission:frais.voir');
+    Route::post('/frais/types', [FraisController::class, 'storeTypeFrais'])->middleware('permission:frais.creer');
+    Route::get('/frais/grilles', [FraisController::class, 'grilles'])->middleware('permission:frais.voir');
+    Route::post('/frais/grilles', [FraisController::class, 'storeGrille'])->middleware('permission:frais.creer');
+    Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve'])->middleware('permission:frais.voir');
+    Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:frais.paiement.enregistrer');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/emploi-du-temps/{classeId}', [EmploiDuTempsController::class, 'index']);
-    Route::post('/emploi-du-temps', [EmploiDuTempsController::class, 'store'])->middleware('permission:enseignants.gerer');
-    Route::delete('/emploi-du-temps/{id}', [EmploiDuTempsController::class, 'destroy'])->middleware('permission:enseignants.gerer');
+    Route::get('/emploi-du-temps/{classeId}', [EmploiDuTempsController::class, 'index'])->middleware('permission:emploi_du_temps.voir');
+    Route::post('/emploi-du-temps', [EmploiDuTempsController::class, 'store'])->middleware('permission:emploi_du_temps.gerer');
+    Route::delete('/emploi-du-temps/{id}', [EmploiDuTempsController::class, 'destroy'])->middleware('permission:emploi_du_temps.gerer');
 });
 
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/periodes', [PeriodeController::class, 'index']);
-    Route::post('/periodes', [PeriodeController::class, 'store'])->middleware('permission:enseignants.gerer');
+    Route::post('/periodes', [PeriodeController::class, 'store'])->middleware('permission:periodes.gerer');
 
-    Route::get('/mes-affectations', [EvaluationController::class, 'mesAffectations']);
-    Route::get('/evaluations', [EvaluationController::class, 'index']);
+    Route::get('/mes-affectations', [EvaluationController::class, 'mesAffectations'])->middleware('permission:notes.voir');
+    Route::get('/evaluations', [EvaluationController::class, 'index'])->middleware('permission:notes.voir');
     Route::post('/evaluations', [EvaluationController::class, 'store'])->middleware('permission:notes.saisir');
-    Route::get('/evaluations/{id}', [EvaluationController::class, 'show']);
+    Route::get('/evaluations/{id}', [EvaluationController::class, 'show'])->middleware('permission:notes.voir');
     Route::put('/evaluations/{id}/notes', [EvaluationController::class, 'saisirNotes'])->middleware('permission:notes.saisir');
     Route::post('/evaluations/{id}/soumettre', [EvaluationController::class, 'soumettre'])->middleware('permission:notes.soumettre');
     Route::post('/evaluations/{id}/valider', [EvaluationController::class, 'valider'])->middleware('permission:notes.valider');
@@ -101,6 +101,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/affectations', [AffectationController::class, 'index'])->middleware('permission:enseignants.voir');
-    Route::post('/affectations', [AffectationController::class, 'store'])->middleware('permission:enseignants.gerer');
-    Route::delete('/affectations/{id}', [AffectationController::class, 'destroy'])->middleware('permission:enseignants.gerer');
+    Route::post('/affectations', [AffectationController::class, 'store'])->middleware('permission:affectations.gerer');
+    Route::delete('/affectations/{id}', [AffectationController::class, 'destroy'])->middleware('permission:affectations.gerer');
 });

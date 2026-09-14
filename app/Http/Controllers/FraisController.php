@@ -29,7 +29,7 @@ class FraisController extends Controller
             ->with(['classe', 'typeFrais', 'echeances'])
             ->get()
             ->map(function ($grille) {
-                $nombreElevesClasse = \App\Models\Eleve::where('classe_id', $grille->classe_id)->count();
+                $nombreElevesClasse = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))->count();
                 $nombreCouverts = FraisEleve::where('type_frais_id', $grille->type_frais_id)
                     ->where('session_scolaire_id', $grille->session_scolaire_id)
                     ->whereHas('eleve', fn($q) => $q->where('classe_id', $grille->classe_id))

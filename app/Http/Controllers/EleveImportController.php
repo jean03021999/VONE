@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Eleve;
 use App\Models\Classe;
+use App\Services\InscriptionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date as DateExcel;
 use Carbon\Carbon;
@@ -326,32 +328,34 @@ class EleveImportController extends Controller
                 ? $donnee['matricule']
                 : 'LAK-' . date('Y') . '-' . str_pad(Eleve::where('etablissement_id', $etablissementId)->count() + 1, 3, '0', STR_PAD_LEFT);
 
-            $eleve = Eleve::create([
-                'etablissement_id' => $etablissementId,
-                'classe_id' => $classe->id,
-                'session_scolaire_id' => $classe->session_scolaire_id,
-                'nom' => $donnee['nom'],
-                'prenom' => $donnee['prenom'],
-                'matricule' => $matricule,
-                'date_naissance' => $donnee['date_naissance'],
-                'lieu_naissance' => $donnee['lieu_naissance'] ?? null,
-                'statut_dossier' => 'photo_manquante',
-            ]);
+            DB::transaction(function () use ($donnee, $classe, $etablissementId, $matricule) {
+                $eleve = Eleve::create([
+                    'etablissement_id' => $etablissementId,
+                    'nom' => $donnee['nom'],
+                    'prenom' => $donnee['prenom'],
+                    'matricule' => $matricule,
+                    'date_naissance' => $donnee['date_naissance'],
+                    'lieu_naissance' => $donnee['lieu_naissance'] ?? null,
+                    'statut_dossier' => 'photo_manquante',
+                ]);
 
-            if (!empty($donnee['pere_nom'])) {
-                $eleve->filiations()->create([
-                    'type_lien' => 'pere',
-                    'nom_complet' => $donnee['pere_nom'],
-                    'telephone' => $donnee['pere_telephone'] ?? null,
-                ]);
-            }
-            if (!empty($donnee['mere_nom'])) {
-                $eleve->filiations()->create([
-                    'type_lien' => 'mere',
-                    'nom_complet' => $donnee['mere_nom'],
-                    'telephone' => $donnee['mere_telephone'] ?? null,
-                ]);
-            }
+                (new InscriptionService())->inscrire($eleve, $classe);
+
+                if (!empty($donnee['pere_nom'])) {
+                    $eleve->filiations()->create([
+                        'type_lien' => 'pere',
+                        'nom_complet' => $donnee['pere_nom'],
+                        'telephone' => $donnee['pere_telephone'] ?? null,
+                    ]);
+                }
+                if (!empty($donnee['mere_nom'])) {
+                    $eleve->filiations()->create([
+                        'type_lien' => 'mere',
+                        'nom_complet' => $donnee['mere_nom'],
+                        'telephone' => $donnee['mere_telephone'] ?? null,
+                    ]);
+                }
+            });
 
             $importes++;
         }

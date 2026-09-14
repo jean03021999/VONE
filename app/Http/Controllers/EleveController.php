@@ -138,14 +138,54 @@ class EleveController extends Controller
 
     public function update(Request $request, $id)
     {
+        $request->validate([
+            'nom' => 'sometimes|string',
+            'prenom' => 'sometimes|string',
+            'date_naissance' => 'sometimes|date',
+            'lieu_naissance' => 'nullable|string',
+            'classe_id' => 'sometimes|exists:classes,id',
+            'correction' => 'sometimes|boolean',
+            'motif' => 'sometimes|string',
+        ]);
+
         $etablissementId = $request->user()->etablissement_id;
         $eleve = Eleve::where('etablissement_id', $etablissementId)->findOrFail($id);
 
-        $eleve->update($request->only([
-            'nom', 'prenom', 'date_naissance', 'lieu_naissance', 'classe_id',
-        ]));
+        $champsIdentitaires = $request->only(['nom', 'prenom', 'date_naissance', 'lieu_naissance']);
 
-        return response()->json($eleve);
+        return DB::transaction(function () use ($request, $eleve, $champsIdentitaires) {
+            $message = null;
+
+            if ($request->filled('classe_id')) {
+                $inscriptionActive = $eleve->inscriptionActive;
+                $nouvelleClasse = \App\Models\Classe::findOrFail($request->classe_id);
+                $service = new InscriptionService();
+
+                if ($request->boolean('correction')) {
+                    $service->corrigerClasse($eleve, $nouvelleClasse);
+                    $message = 'Correction administrative effectuee';
+                } elseif (! $inscriptionActive || $nouvelleClasse->session_scolaire_id !== $inscriptionActive->session_scolaire_id) {
+                    $service->reinscrire($eleve, $nouvelleClasse);
+                    $message = 'Reinscription effectuee';
+                } else {
+                    if (! $request->filled('motif')) {
+                        return response()->json(['message' => 'Le motif est obligatoire pour un changement de classe'], 422);
+                    }
+                    $service->changerClasse($eleve, $nouvelleClasse, $request->motif);
+                    $message = 'Changement de classe effectue';
+                }
+            }
+
+            if (! empty($champsIdentitaires)) {
+                $eleve->update($champsIdentitaires);
+            }
+
+            $eleve = $eleve->fresh(['inscriptionActive.classe']);
+
+            return $message
+                ? response()->json(['message' => $message, 'eleve' => $eleve])
+                : response()->json($eleve);
+        });
     }
 }
 

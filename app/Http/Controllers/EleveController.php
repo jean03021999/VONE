@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Eleve;
 use App\Models\EleveFiliation;
+use App\Services\InscriptionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class EleveController extends Controller
 {
@@ -81,48 +83,57 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
         $classe = \App\Models\Classe::findOrFail($request->classe_id);
 
-        do {
-            $dernier = Eleve::withTrashed()->where('matricule', 'like', 'LAK-' . date('Y') . '-%')->count();
-            $matricule = 'LAK-' . date('Y') . '-' . str_pad($dernier + 1, 3, '0', STR_PAD_LEFT);
-            $dernier++;
-        } while (Eleve::withTrashed()->where('matricule', $matricule)->exists());
+        $eleve = DB::transaction(function () use ($request, $etablissementId, $classe) {
+            $prefixeMatricule = 'LAK-' . date('Y') . '-';
+            $dernierNumero = Eleve::withTrashed()
+                ->where('matricule', 'like', $prefixeMatricule . '%')
+                ->get(['matricule'])
+                ->max(fn ($e) => (int) substr($e->matricule, strlen($prefixeMatricule)));
 
-        $eleve = Eleve::create([
-            'etablissement_id' => $etablissementId,
-            'classe_id' => $request->classe_id,
-            'session_scolaire_id' => $classe->session_scolaire_id,
-            'nom' => $request->nom,
-            'prenom' => $request->prenom,
-            'matricule' => $matricule,
-            'date_naissance' => $request->date_naissance,
-            'lieu_naissance' => $request->lieu_naissance,
-            'statut_dossier' => 'photo_manquante',
-        ]);
+            do {
+                $dernierNumero = ($dernierNumero ?? 0) + 1;
+                $matricule = $prefixeMatricule . str_pad($dernierNumero, 3, '0', STR_PAD_LEFT);
+            } while (Eleve::withTrashed()->where('matricule', $matricule)->exists());
 
-        if ($request->filled('pere_nom')) {
-            $eleve->filiations()->create([
-                'type_lien' => 'pere',
-                'nom_complet' => $request->pere_nom,
-                'telephone' => $request->pere_telephone,
+            $eleve = Eleve::create([
+                'etablissement_id' => $etablissementId,
+                'nom' => $request->nom,
+                'prenom' => $request->prenom,
+                'matricule' => $matricule,
+                'date_naissance' => $request->date_naissance,
+                'lieu_naissance' => $request->lieu_naissance,
+                'statut_dossier' => 'photo_manquante',
             ]);
-        }
-        if ($request->filled('mere_nom')) {
-            $eleve->filiations()->create([
-                'type_lien' => 'mere',
-                'nom_complet' => $request->mere_nom,
-                'telephone' => $request->mere_telephone,
-            ]);
-        }
-        if ($request->filled('tuteur_nom')) {
-            $eleve->filiations()->create([
-                'type_lien' => 'tuteur',
-                'nom_complet' => $request->tuteur_nom,
-                'telephone' => $request->tuteur_telephone,
-                'lien_avec_eleve' => $request->tuteur_lien,
-            ]);
-        }
 
-        return response()->json($eleve->load('filiations'), 201);
+            (new InscriptionService())->inscrire($eleve, $classe);
+
+            if ($request->filled('pere_nom')) {
+                $eleve->filiations()->create([
+                    'type_lien' => 'pere',
+                    'nom_complet' => $request->pere_nom,
+                    'telephone' => $request->pere_telephone,
+                ]);
+            }
+            if ($request->filled('mere_nom')) {
+                $eleve->filiations()->create([
+                    'type_lien' => 'mere',
+                    'nom_complet' => $request->mere_nom,
+                    'telephone' => $request->mere_telephone,
+                ]);
+            }
+            if ($request->filled('tuteur_nom')) {
+                $eleve->filiations()->create([
+                    'type_lien' => 'tuteur',
+                    'nom_complet' => $request->tuteur_nom,
+                    'telephone' => $request->tuteur_telephone,
+                    'lien_avec_eleve' => $request->tuteur_lien,
+                ]);
+            }
+
+            return $eleve;
+        });
+
+        return response()->json($eleve->load('inscriptionActive.classe', 'filiations'), 201);
     }
 
     public function update(Request $request, $id)

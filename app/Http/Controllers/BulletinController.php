@@ -50,7 +50,7 @@ class BulletinController extends Controller
         $etablissementId = $request->user()->etablissement_id;
         $classe = Classe::findOrFail($request->classe_id);
         $periode = Periode::findOrFail($request->periode_id);
-        $eleves = Eleve::where('classe_id', $classe->id)->get();
+        $eleves = Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $classe->id)->where('statut', 'active'))->get();
 
         // Verifie que TOUTES les matieres affectees a cette classe ont au moins
         // une evaluation publiee ou archivee sur cette periode, avant d'autoriser
@@ -154,7 +154,7 @@ class BulletinController extends Controller
         // Calcul du rang, avec gestion des egalites
         $bulletinsClasse = Bulletin::where('periode_id', $periode->id)
             ->where('statut', 'courante')
-            ->whereIn('eleve_id', Eleve::where('classe_id', $classe->id)->pluck('id'))
+            ->whereIn('eleve_id', Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $classe->id)->where('statut', 'active'))->pluck('id'))
             ->orderByDesc('moyenne')
             ->get();
 
@@ -177,7 +177,7 @@ class BulletinController extends Controller
 
         $bulletins = Bulletin::where('periode_id', $request->periode_id)
             ->where('statut', 'courante')
-            ->whereIn('eleve_id', Eleve::where('classe_id', $request->classe_id)->pluck('id'))
+            ->whereIn('eleve_id', Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $request->classe_id)->where('statut', 'active'))->pluck('id'))
             ->with('eleve')
             ->orderBy('rang')
             ->get();

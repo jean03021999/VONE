@@ -95,7 +95,7 @@ class FraisController extends Controller
         $grille->loadMissing('echeances');
         $crees = 0;
 
-        $eleves = \App\Models\Eleve::where('classe_id', $grille->classe_id)->get();
+        $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))->get();
         foreach ($eleves as $eleve) {
             $existe = FraisEleve::where('eleve_id', $eleve->id)
                 ->where('type_frais_id', $grille->type_frais_id)

@@ -71,7 +71,7 @@ class EvaluationController extends Controller
 
         $evaluation = Evaluation::create($request->only(['affectation_id', 'periode_id', 'type', 'libelle', 'date_evaluation', 'bareme']));
 
-        $eleves = \App\Models\Eleve::where('classe_id', $affectation->classe_id)->get();
+        $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $affectation->classe_id)->where('statut', 'active'))->get();
         foreach ($eleves as $eleve) {
             Note::create(['evaluation_id' => $evaluation->id, 'eleve_id' => $eleve->id, 'statut_presence' => 'present']);
         }

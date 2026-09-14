@@ -26,7 +26,20 @@ class FraisController extends Controller
     public function grilles(Request $request)
     {
         $grilles = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)
-            ->with(['classe', 'typeFrais', 'echeances'])->get();
+            ->with(['classe', 'typeFrais', 'echeances'])
+            ->get()
+            ->map(function ($grille) {
+                $nombreElevesClasse = \App\Models\Eleve::where('classe_id', $grille->classe_id)->count();
+                $nombreCouverts = FraisEleve::where('type_frais_id', $grille->type_frais_id)
+                    ->where('session_scolaire_id', $grille->session_scolaire_id)
+                    ->whereHas('eleve', fn($q) => $q->where('classe_id', $grille->classe_id))
+                    ->count();
+
+                $grille->nombre_eleves_classe = $nombreElevesClasse;
+                $grille->nombre_eleves_couverts = $nombreCouverts;
+                return $grille;
+            });
+
         return response()->json($grilles);
     }
 
@@ -68,19 +81,33 @@ class FraisController extends Controller
             $grille->echeances()->create($ech);
         }
 
-        $eleves = \App\Models\Eleve::where('classe_id', $classe->id)->get();
+        $this->appliquerGrilleAuxEleves($grille);
+
+        return response()->json($grille->load('echeances'), 201);
+    }
+
+    /**
+     * Cree les frais et echeances manquants pour les eleves de la classe
+     * qui n'ont pas encore de FraisEleve pour cette grille (nouveaux inscrits notamment).
+     */
+    private function appliquerGrilleAuxEleves(GrilleTarifaire $grille): int
+    {
+        $grille->loadMissing('echeances');
+        $crees = 0;
+
+        $eleves = \App\Models\Eleve::where('classe_id', $grille->classe_id)->get();
         foreach ($eleves as $eleve) {
             $existe = FraisEleve::where('eleve_id', $eleve->id)
-                ->where('type_frais_id', $request->type_frais_id)
-                ->where('session_scolaire_id', $classe->session_scolaire_id)->exists();
+                ->where('type_frais_id', $grille->type_frais_id)
+                ->where('session_scolaire_id', $grille->session_scolaire_id)->exists();
             if ($existe) continue;
 
             $fraisEleve = FraisEleve::create([
                 'eleve_id' => $eleve->id,
-                'type_frais_id' => $request->type_frais_id,
-                'session_scolaire_id' => $classe->session_scolaire_id,
-                'montant_total' => $request->montant,
-                'montant_original' => $request->montant,
+                'type_frais_id' => $grille->type_frais_id,
+                'session_scolaire_id' => $grille->session_scolaire_id,
+                'montant_total' => $grille->montant,
+                'montant_original' => $grille->montant,
             ]);
 
             foreach ($grille->echeances as $ech) {
@@ -90,9 +117,25 @@ class FraisController extends Controller
                     'date_limite' => $ech->date_limite,
                 ]);
             }
+            $crees++;
         }
 
-        return response()->json($grille->load('echeances'), 201);
+        return $crees;
+    }
+
+    public function synchroniserGrille(Request $request, $id)
+    {
+        $grille = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)
+            ->findOrFail($id);
+
+        $crees = $this->appliquerGrilleAuxEleves($grille);
+
+        return response()->json([
+            'message' => $crees > 0
+                ? "{$crees} élève(s) synchronisé(s) avec cette grille tarifaire."
+                : "Tous les élèves de cette classe sont déjà à jour avec cette grille.",
+            'crees' => $crees,
+        ]);
     }
 
     public function suiviEleve(Request $request, $eleveId)
@@ -117,6 +160,116 @@ class FraisController extends Controller
             ]);
 
         return response()->json(['eleve' => ['id' => $eleve->id, 'nom' => $eleve->nom, 'prenom' => $eleve->prenom], 'frais' => $fraisEleves]);
+    }
+
+    public function paiements(Request $request)
+    {
+        $etablissementId = $request->user()->etablissement_id;
+
+        $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
+            $q->where('etablissement_id', $etablissementId);
+        })
+            ->with('eleve.classe')
+            ->orderByDesc('date_paiement')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn($p) => [
+                'id' => $p->id,
+                'montant' => $p->montant,
+                'moyen_paiement' => $p->moyen_paiement,
+                'date_paiement' => $p->date_paiement,
+                'heure' => $p->created_at?->format('H:i'),
+                'libelle' => $p->libelle,
+                'eleve' => $p->eleve ? [
+                    'id' => $p->eleve->id,
+                    'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",
+                    'matricule' => $p->eleve->matricule,
+                    'classe' => $p->eleve->classe?->nom,
+                ] : null,
+            ]);
+
+        return response()->json($paiements);
+    }
+
+    public function paiementsRecent(Request $request)
+    {
+        $etablissementId = $request->user()->etablissement_id;
+
+        $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
+            $q->where('etablissement_id', $etablissementId);
+        })
+            ->with('eleve.classe')
+            ->orderByDesc('date_paiement')
+            ->orderByDesc('id')
+            ->limit(5)
+            ->get()
+            ->map(fn($p) => [
+                'id' => $p->id,
+                'montant' => $p->montant,
+                'periode' => $p->libelle,
+                'date_paiement' => $p->date_paiement,
+                'heure' => $p->created_at?->format('H:i'),
+                'eleve' => $p->eleve ? [
+                    'id' => $p->eleve->id,
+                    'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",
+                    'classe' => $p->eleve->classe?->nom,
+                ] : null,
+            ]);
+
+        return response()->json($paiements);
+    }
+
+    public function statsParClasse(Request $request)
+    {
+        $etablissementId = $request->user()->etablissement_id;
+
+        $classes = Classe::where('etablissement_id', $etablissementId)
+            ->with('eleves.fraisEleves.echeances')
+            ->orderBy('nom')
+            ->get();
+
+        $resultat = $classes->map(function ($classe) {
+            $montantTotal = 0;
+            $montantEncaisse = 0;
+            $nombreSoldes = 0;
+            $nombreEnRetard = 0;
+            $nombreSansFrais = 0;
+
+            foreach ($classe->eleves as $eleve) {
+                $echeances = $eleve->fraisEleves->flatMap->echeances;
+
+                if ($echeances->isEmpty()) {
+                    $nombreSansFrais++;
+                    continue;
+                }
+
+                $montantTotal += $echeances->sum('montant');
+                $montantEncaisse += $echeances->sum('montant_paye');
+
+                $aDuRetard = $echeances->contains(fn($e) => $e->statut === 'en_retard');
+                $estSolde = $echeances->every(fn($e) => $e->solde <= 0);
+
+                if ($aDuRetard) {
+                    $nombreEnRetard++;
+                } elseif ($estSolde) {
+                    $nombreSoldes++;
+                }
+            }
+
+            return [
+                'classe_id' => $classe->id,
+                'classe' => $classe->nom,
+                'niveau' => $classe->niveau,
+                'nombre_eleves' => $classe->eleves->count(),
+                'montant_total' => $montantTotal,
+                'montant_encaisse' => $montantEncaisse,
+                'nombre_soldes' => $nombreSoldes,
+                'nombre_en_retard' => $nombreEnRetard,
+                'nombre_sans_frais' => $nombreSansFrais,
+            ];
+        })->values();
+
+        return response()->json($resultat);
     }
 
     public function enregistrerPaiement(Request $request)

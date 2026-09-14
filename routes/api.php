@@ -14,9 +14,20 @@ use App\Http\Controllers\PeriodeController;
 use App\Http\Controllers\EvaluationController;
 use App\Http\Controllers\BulletinController;
 use App\Http\Controllers\AffectationController;
+use App\Http\Controllers\UtilisateurController;
+use App\Http\Controllers\AbonnementController;
+use App\Http\Controllers\StatsPubliquesController;
 
 Route::get('/user', function (Request $request) {
-    return $request->user();
+    $user = $request->user();
+    $role = $user->roles()
+        ->where('roles.etablissement_id', $user->etablissement_id)
+        ->first();
+
+    return response()->json([
+        'user' => $user,
+        'role' => $role ? strtoupper($role->nom) : null,
+    ]);
 })->middleware('auth:sanctum');
 
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -24,6 +35,8 @@ Route::post('/auth/verifier-otp', [AuthController::class, 'verifierOtp']);
 Route::post('/auth/renvoyer-otp', [AuthController::class, 'renvoyerOtp']);
 Route::post('/auth/mot-de-passe-oublie', [AuthController::class, 'motDePasseOublie']);
 Route::post('/auth/reinitialiser-mot-de-passe', [AuthController::class, 'reinitialiserMotDePasse']);
+
+Route::get('/stats-publiques', [StatsPubliquesController::class, 'index']);
 
 Route::middleware(['auth:sanctum', 'permission:eleves.voir'])->get('/test-permission', function () {
     return response()->json(['message' => 'Acces autorise, vous avez la permission eleves.voir']);
@@ -66,8 +79,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/frais/types', [FraisController::class, 'storeTypeFrais'])->middleware('permission:frais.creer');
     Route::get('/frais/grilles', [FraisController::class, 'grilles'])->middleware('permission:frais.voir');
     Route::post('/frais/grilles', [FraisController::class, 'storeGrille'])->middleware('permission:frais.creer');
+    Route::post('/frais/grilles/{id}/synchroniser', [FraisController::class, 'synchroniserGrille'])->middleware('permission:frais.creer');
     Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve'])->middleware('permission:frais.voir');
     Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:frais.paiement.enregistrer');
+    Route::get('/frais/paiements/recent', [FraisController::class, 'paiementsRecent'])->middleware('permission:frais.voir');
+    Route::get('/frais/paiements', [FraisController::class, 'paiements'])->middleware('permission:frais.voir');
+    Route::get('/frais/stats-par-classe', [FraisController::class, 'statsParClasse'])->middleware('permission:frais.voir');
+});
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/utilisateurs', [UtilisateurController::class, 'index']);
+    Route::get('/abonnement', [AbonnementController::class, 'show'])->middleware('permission:abonnement.voir');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {

@@ -59,6 +59,12 @@ class Eleve extends Model
             }
         }
 
+        foreach ($echeances as $echeance) {
+            if ($echeance->statut !== 'payee') {
+                return 'a_echoir';
+            }
+        }
+
         return 'a_jour';
     }
 }

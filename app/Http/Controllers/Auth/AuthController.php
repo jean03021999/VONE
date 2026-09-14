@@ -43,6 +43,7 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Connexion reussie',
                 'user' => $user,
+                'role' => $this->roleActuel($user),
                 'otp_requis' => false,
                 'token' => $token,
             ]);
@@ -59,6 +60,7 @@ class AuthController extends Controller
                 return response()->json([
                     'message' => 'Connexion reussie',
                     'user' => $user,
+                    'role' => $this->roleActuel($user),
                     'otp_requis' => false,
                     'token' => $token,
                 ]);
@@ -112,6 +114,7 @@ class AuthController extends Controller
         $reponse = [
             'message' => 'Connexion reussie',
             'user' => $user,
+            'role' => $this->roleActuel($user),
             'token' => $token,
         ];
 
@@ -203,6 +206,15 @@ class AuthController extends Controller
         $user->update(['password' => Hash::make($request->nouveau_mot_de_passe)]);
 
         return response()->json(['message' => 'Mot de passe reinitialise avec succes']);
+    }
+
+    private function roleActuel(User $user): ?string
+    {
+        $role = $user->roles()
+            ->where('roles.etablissement_id', $user->etablissement_id)
+            ->first();
+
+        return $role ? strtoupper($role->nom) : null;
     }
 
     private function genererOtp(User $user, string $type): string

@@ -44,6 +44,7 @@ class EleveController extends Controller
         $total = $eleves->count();
         $aJour = $eleves->where('statut_paiement', 'a_jour')->count();
         $enRetard = $eleves->where('statut_paiement', 'en_retard')->count();
+        $aEchoir = $eleves->where('statut_paiement', 'a_echoir')->count();
 
         return response()->json([
             'eleves' => $eleves,
@@ -51,6 +52,7 @@ class EleveController extends Controller
                 'total' => $total,
                 'a_jour' => $aJour,
                 'en_retard' => $enRetard,
+                'a_echoir' => $aEchoir,
             ],
         ]);
     }

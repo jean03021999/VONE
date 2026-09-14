@@ -35,6 +35,7 @@ class RolePermissionSeeder extends Seeder
                 'eleves.voir', 'eleves.creer', 'eleves.modifier', 'eleves.importer',
                 'enseignants.voir', 'enseignants.creer',
                 'enseignants.salaires.voir', 'enseignants.salaires.gerer',
+                'classes.voir',
                 'emploi_du_temps.voir',
                 'frais.voir', 'frais.creer', 'frais.paiement.enregistrer',
             ],

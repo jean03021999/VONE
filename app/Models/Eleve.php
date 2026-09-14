@@ -9,6 +9,8 @@ class Eleve extends Model
 {
     use SoftDeletes;
 
+    protected $with = ['inscriptionActive.classe'];
+
     protected $fillable = [
         'etablissement_id', 'classe_id', 'session_scolaire_id',
         'nom', 'prenom', 'matricule', 'date_naissance', 'lieu_naissance',
@@ -20,14 +22,26 @@ class Eleve extends Model
         return $this->belongsTo(Etablissement::class);
     }
 
-    public function classe()
+    public function inscriptions()
     {
-        return $this->belongsTo(Classe::class, 'classe_id');
+        return $this->hasMany(Inscription::class);
     }
 
-    public function sessionScolaire()
+    public function inscriptionActive()
     {
-        return $this->belongsTo(SessionScolaire::class);
+        return $this->hasOne(Inscription::class)
+            ->whereHas('sessionScolaire', fn ($q) => $q->where('est_active', true))
+            ->where('statut', 'active');
+    }
+
+    public function getClasseIdAttribute()
+    {
+        return $this->inscriptionActive?->classe_id;
+    }
+
+    public function getSessionScolaireIdAttribute()
+    {
+        return $this->inscriptionActive?->session_scolaire_id;
     }
 
     public function filiations()

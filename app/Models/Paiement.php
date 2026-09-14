@@ -8,11 +8,17 @@ class Paiement extends Model
 {
     protected $fillable = [
         'eleve_id', 'echeance_eleve_id', 'libelle', 'montant', 'moyen_paiement', 'date_paiement',
+        'reference', 'caissier_id', 'observation',
     ];
 
     public function eleve()
     {
         return $this->belongsTo(Eleve::class);
+    }
+
+    public function caissier()
+    {
+        return $this->belongsTo(User::class, 'caissier_id');
     }
 
     public function echeanceEleve()

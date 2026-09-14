@@ -13,10 +13,10 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $query = Eleve::where('etablissement_id', $etablissementId)
-            ->with('classe');
+            ->with('inscriptionActive.classe', 'inscriptionActive.sessionScolaire');
 
         if ($request->filled('classe_id')) {
-            $query->where('classe_id', $request->classe_id);
+            $query->whereHas('inscriptionActive', fn ($q) => $q->where('classe_id', $request->classe_id));
         }
 
         if ($request->filled('recherche')) {
@@ -34,7 +34,7 @@ class EleveController extends Controller
                 'nom' => $eleve->nom,
                 'prenom' => $eleve->prenom,
                 'matricule' => $eleve->matricule,
-                'classe' => $eleve->classe?->nom,
+                'classe' => $eleve->inscriptionActive?->classe?->nom,
                 'photo_path' => $eleve->photo_path,
                 'statut_dossier' => $eleve->statut_dossier,
                 'statut_paiement' => $eleve->statut_paiement,
@@ -62,7 +62,7 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $eleve = Eleve::where('etablissement_id', $etablissementId)
-            ->with(['classe', 'filiations', 'fraisEleves.echeances.paiements'])
+            ->with(['inscriptionActive.classe', 'filiations', 'fraisEleves.echeances.paiements'])
             ->findOrFail($id);
 
         return response()->json($eleve);

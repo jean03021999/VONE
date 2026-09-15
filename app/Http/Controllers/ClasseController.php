@@ -14,6 +14,7 @@ class ClasseController extends Controller
         $classes = Classe::where('etablissement_id', $etablissementId)
             ->with('filiere')
             ->withCount('eleves')
+            ->ordonneesPedagogiquement()
             ->get()
             ->map(fn($c) => [
                 'id' => $c->id,

@@ -37,6 +37,10 @@ class EleveController extends Controller
                 'prenom' => $eleve->prenom,
                 'matricule' => $eleve->matricule,
                 'classe' => $eleve->inscriptionActive?->classe?->nom,
+                'inscription_active' => $eleve->inscriptionActive ? [
+                    'type_inscription' => $eleve->inscriptionActive->type_inscription,
+                    'statut' => $eleve->inscriptionActive->statut,
+                ] : null,
                 'photo_path' => $eleve->photo_path,
                 'statut_dossier' => $eleve->statut_dossier,
                 'statut_paiement' => $eleve->statut_paiement,

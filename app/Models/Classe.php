@@ -61,6 +61,48 @@ class Classe extends Model
     {
         return $this->belongsTo(Filiere::class);
     }
+
+    /**
+     * Ordre pedagogique : Maternelle (Petite/Moyenne/Grande Section) puis
+     * Primaire+College+Lycee, au lieu de l'ordre d'insertion en base.
+     * A niveau egal, tri alphabetique par nom (A, B, ...).
+     *
+     * Reconnait a la fois l'ancien schema de niveau ("6eme annee", 1-12 a plat,
+     * cree avant la migration vers la nomenclature guineenne officielle) et le
+     * nouveau ("6ème Année", avec primaire a 6 ans et series au lycee/terminale).
+     * Les deux schemas ne se recouvrent pas terme a terme (l'ancien fait demarrer
+     * le college a la 6eme annee alors que le nouveau y place la fin du primaire),
+     * donc chaque schema est classe dans son propre bloc plutot que fusionne.
+     */
+    public function scopeOrdonneesPedagogiquement($query)
+    {
+        $ancienSchema = [
+            'petite section', 'moyenne section', 'grande section',
+            '1ere annee', '2eme annee', '3eme annee', '4eme annee', '5eme annee', '6eme annee',
+            '7eme annee', '8eme annee', '9eme annee', '10eme annee', '11eme annee', '12eme annee',
+        ];
+
+        $nouveauSchema = [
+            'Petite Section', 'Moyenne Section', 'Grande Section',
+            '1ère Année', '2ème Année', '3ème Année', '4ème Année', '5ème Année', '6ème Année',
+            '7ème Année', '8ème Année', '9ème Année', '10ème Année',
+            '11ème Année - Série Scientifique', '11ème Année - Série Littéraire',
+            '12ème Année - Série Scientifique', '12ème Année - Série Littéraire',
+            'Terminale - Sciences Mathématiques', 'Terminale - Sciences Sociales', 'Terminale - Sciences Expérimentales',
+        ];
+
+        $ordre = array_merge($ancienSchema, $nouveauSchema);
+
+        $whens = [];
+        $bindings = [];
+        foreach ($ordre as $rang => $niveau) {
+            $whens[] = 'WHEN ? THEN ' . $rang;
+            $bindings[] = $niveau;
+        }
+        $sql = 'CASE niveau ' . implode(' ', $whens) . ' ELSE 999 END';
+
+        return $query->orderByRaw($sql, $bindings)->orderBy('nom');
+    }
 }
 
 

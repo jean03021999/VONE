@@ -169,7 +169,7 @@ class FraisController extends Controller
         $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
-            ->with('eleve.classe')
+            ->with(['eleve.inscriptionActive.classe', 'echeanceEleve.fraisEleve.typeFrais'])
             ->orderByDesc('date_paiement')
             ->orderByDesc('id')
             ->get()
@@ -180,11 +180,12 @@ class FraisController extends Controller
                 'date_paiement' => $p->date_paiement,
                 'heure' => $p->created_at?->format('H:i'),
                 'libelle' => $p->libelle,
+                'type_frais' => $p->echeanceEleve?->fraisEleve?->typeFrais?->nom,
                 'eleve' => $p->eleve ? [
                     'id' => $p->eleve->id,
                     'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",
                     'matricule' => $p->eleve->matricule,
-                    'classe' => $p->eleve->classe?->nom,
+                    'classe' => $p->eleve->inscriptionActive?->classe?->nom,
                 ] : null,
             ]);
 
@@ -198,7 +199,7 @@ class FraisController extends Controller
         $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
-            ->with('eleve.classe')
+            ->with('eleve.inscriptionActive.classe')
             ->orderByDesc('date_paiement')
             ->orderByDesc('id')
             ->limit(5)
@@ -212,7 +213,7 @@ class FraisController extends Controller
                 'eleve' => $p->eleve ? [
                     'id' => $p->eleve->id,
                     'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",
-                    'classe' => $p->eleve->classe?->nom,
+                    'classe' => $p->eleve->inscriptionActive?->classe?->nom,
                 ] : null,
             ]);
 

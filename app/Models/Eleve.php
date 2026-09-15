@@ -12,7 +12,7 @@ class Eleve extends Model
     protected $with = ['inscriptionActive.classe'];
 
     protected $fillable = [
-        'etablissement_id', 'classe_id', 'session_scolaire_id',
+        'etablissement_id',
         'nom', 'prenom', 'matricule', 'date_naissance', 'lieu_naissance',
         'photo_path', 'statut_dossier',
     ];

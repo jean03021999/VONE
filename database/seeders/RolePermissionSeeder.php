@@ -40,7 +40,7 @@ class RolePermissionSeeder extends Seeder
                 'frais.voir', 'frais.creer', 'frais.paiement.enregistrer',
             ],
             'Directeur' => [
-                'eleves.voir', 'eleves.creer', 'eleves.modifier', 'eleves.importer',
+                'eleves.voir',
                 'enseignants.voir',
                 'matieres.gerer', 'classes.voir', 'classes.gerer', 'affectations.gerer',
                 'emploi_du_temps.voir', 'emploi_du_temps.gerer',
@@ -48,9 +48,12 @@ class RolePermissionSeeder extends Seeder
                 'notes.voir', 'notes.valider', 'notes.publier',
                 'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
             ],
-            'Proviseur' => array_values(array_diff($catalogue, ['abonnement.voir', 'abonnement.gerer'])),
+            'Proviseur' => array_values(array_diff($catalogue, [
+                'abonnement.voir', 'abonnement.gerer',
+                'eleves.creer', 'eleves.modifier', 'eleves.importer',
+            ])),
             'Censeur' => [
-                'eleves.voir', 'eleves.creer', 'eleves.modifier', 'eleves.importer',
+                'eleves.voir',
                 'enseignants.voir',
                 'matieres.gerer', 'classes.voir', 'classes.gerer', 'affectations.gerer',
                 'emploi_du_temps.voir', 'emploi_du_temps.gerer',

@@ -27,6 +27,7 @@ Route::get('/user', function (Request $request) {
     return response()->json([
         'user' => $user,
         'role' => $role ? strtoupper($role->nom) : null,
+        'permissions' => $role ? $role->permissions()->pluck('nom') : [],
     ]);
 })->middleware('auth:sanctum');
 
@@ -80,6 +81,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/frais/grilles', [FraisController::class, 'grilles'])->middleware('permission:frais.voir');
     Route::post('/frais/grilles', [FraisController::class, 'storeGrille'])->middleware('permission:frais.creer');
     Route::post('/frais/grilles/{id}/synchroniser', [FraisController::class, 'synchroniserGrille'])->middleware('permission:frais.creer');
+    Route::post('/frais/appliquer-inscription', [FraisController::class, 'appliquerInscription'])->middleware('permission:frais.creer');
     Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve'])->middleware('permission:frais.voir');
     Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:frais.paiement.enregistrer');
     Route::get('/frais/paiements/recent', [FraisController::class, 'paiementsRecent'])->middleware('permission:frais.voir');

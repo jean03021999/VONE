@@ -76,13 +76,7 @@ class Classe extends Model
      */
     public function scopeOrdonneesPedagogiquement($query)
     {
-        $ancienSchema = [
-            'petite section', 'moyenne section', 'grande section',
-            '1ere annee', '2eme annee', '3eme annee', '4eme annee', '5eme annee', '6eme annee',
-            '7eme annee', '8eme annee', '9eme annee', '10eme annee', '11eme annee', '12eme annee',
-        ];
-
-        $nouveauSchema = [
+        $ordre = [
             'Petite Section', 'Moyenne Section', 'Grande Section',
             '1ère Année', '2ème Année', '3ème Année', '4ème Année', '5ème Année', '6ème Année',
             '7ème Année', '8ème Année', '9ème Année', '10ème Année',
@@ -90,8 +84,6 @@ class Classe extends Model
             '12ème Année - Série Scientifique', '12ème Année - Série Littéraire',
             'Terminale - Sciences Mathématiques', 'Terminale - Sciences Sociales', 'Terminale - Sciences Expérimentales',
         ];
-
-        $ordre = array_merge($ancienSchema, $nouveauSchema);
 
         $whens = [];
         $bindings = [];

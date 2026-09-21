@@ -8,9 +8,22 @@ use App\Models\FraisEleve;
 use App\Models\Paiement;
 use App\Models\Classe;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class FraisController extends Controller
 {
+    /**
+     * Les frais d'inscription / reinscription se gerent eleve par eleve (appliquerInscription) :
+     * ils ne doivent jamais etre appliques en masse a toute une classe par une grille.
+     */
+    private function estFraisParEleve(GrilleTarifaire $grille): bool
+    {
+        $nom = Str::of($grille->typeFrais?->nom ?? '')->ascii()->lower()->toString();
+
+        return in_array($nom, ['inscription', 'reinscription'], true);
+    }
+
     public function typesFrais(Request $request)
     {
         return response()->json(TypeFrais::where('etablissement_id', $request->user()->etablissement_id)->get());
@@ -92,7 +105,10 @@ class FraisController extends Controller
      */
     private function appliquerGrilleAuxEleves(GrilleTarifaire $grille): int
     {
-        $grille->loadMissing('echeances');
+        $grille->loadMissing('echeances', 'typeFrais');
+        if ($this->estFraisParEleve($grille)) {
+            return 0;
+        }
         $crees = 0;
 
         $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))->get();
@@ -126,7 +142,12 @@ class FraisController extends Controller
     public function synchroniserGrille(Request $request, $id)
     {
         $grille = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)
+            ->with('typeFrais')
             ->findOrFail($id);
+
+        if ($this->estFraisParEleve($grille)) {
+            return response()->json(['message' => "Les frais d'inscription se gèrent élève par élève."], 422);
+        }
 
         $crees = $this->appliquerGrilleAuxEleves($grille);
 
@@ -136,6 +157,117 @@ class FraisController extends Controller
                 : "Tous les élèves de cette classe sont déjà à jour avec cette grille.",
             'crees' => $crees,
         ]);
+    }
+
+    /**
+     * Applique a un eleve les frais d'inscription ou de reinscription de sa classe (grille du type
+     * de frais donne) ET enregistre le paiement dans le meme geste : un FraisEleve (unique par
+     * eleve / type / session), une echeance unique du montant total due aujourd'hui, un paiement.
+     * La reference du paiement (INS-{annee}-{eleve_id}-{timestamp}) est generee ici et stockee.
+     */
+    public function appliquerInscription(Request $request)
+    {
+        $request->validate([
+            'eleve_id' => 'required|integer',
+            'type_frais_id' => 'required|integer',
+            'montant' => 'required|numeric|min:1',
+            'moyen_paiement' => 'required|in:especes,mobile_money,virement,cheque',
+        ]);
+
+        $etablissementId = $request->user()->etablissement_id;
+
+        $eleve = \App\Models\Eleve::where('etablissement_id', $etablissementId)
+            ->with('inscriptionActive.classe')
+            ->findOrFail($request->eleve_id);
+        $typeFrais = TypeFrais::where('etablissement_id', $etablissementId)->findOrFail($request->type_frais_id);
+
+        $inscription = $eleve->inscriptionActive;
+        if (! $inscription) {
+            return response()->json(['message' => "Cet élève n'a pas d'inscription active sur la session en cours."], 422);
+        }
+
+        $grille = GrilleTarifaire::where('etablissement_id', $etablissementId)
+            ->where('classe_id', $inscription->classe_id)
+            ->where('session_scolaire_id', $inscription->session_scolaire_id)
+            ->where('type_frais_id', $typeFrais->id)
+            ->where('actif', true)
+            ->first();
+
+        if (! $grille) {
+            return response()->json([
+                'message' => "Aucune grille « {$typeFrais->nom} » n'existe pour la classe {$inscription->classe?->nom}.",
+            ], 422);
+        }
+
+        if ((float) $request->montant > (float) $grille->montant) {
+            return response()->json([
+                'message' => 'Le montant dépasse les frais dus (' . (int) $grille->montant . ' GNF).',
+            ], 422);
+        }
+
+        $resultat = DB::transaction(function () use ($request, $eleve, $typeFrais, $inscription, $grille) {
+            $frais = FraisEleve::firstOrCreate(
+                [
+                    'eleve_id' => $eleve->id,
+                    'type_frais_id' => $typeFrais->id,
+                    'session_scolaire_id' => $inscription->session_scolaire_id,
+                ],
+                [
+                    'montant_total' => $grille->montant,
+                    'montant_original' => $grille->montant,
+                    'inscription_id' => $inscription->id,
+                    'grille_tarifaire_id' => $grille->id,
+                ]
+            );
+
+            if (! $frais->wasRecentlyCreated) {
+                return null;
+            }
+
+            $echeance = $frais->echeances()->create([
+                'libelle' => $typeFrais->nom,
+                'montant' => $grille->montant,
+                'date_limite' => today()->toDateString(),
+            ]);
+
+            $paiement = Paiement::create([
+                'eleve_id' => $eleve->id,
+                'echeance_eleve_id' => $echeance->id,
+                'libelle' => $echeance->libelle,
+                'montant' => $request->montant,
+                'moyen_paiement' => $request->moyen_paiement,
+                'date_paiement' => today()->toDateString(),
+                'reference' => 'INS-' . now()->year . '-' . $eleve->id . '-' . now()->timestamp,
+                'caissier_id' => $request->user()->id,
+            ]);
+
+            return compact('frais', 'paiement');
+        });
+
+        if ($resultat === null) {
+            return response()->json(['message' => 'Frais déjà appliqués'], 409);
+        }
+
+        $paiement = $resultat['paiement'];
+        $reste = (float) $grille->montant - (float) $paiement->montant;
+
+        return response()->json([
+            'message' => "{$typeFrais->nom} enregistrée pour {$eleve->nom} {$eleve->prenom}.",
+            'frais_eleve_id' => $resultat['frais']->id,
+            'paiement_id' => $paiement->id,
+            'reference' => $paiement->reference,
+            'type_frais' => $typeFrais->nom,
+            'montant' => $grille->montant,
+            'montant_paye' => $paiement->montant,
+            'reste' => $reste,
+            'complet' => $reste <= 0,
+            'moyen_paiement' => $paiement->moyen_paiement,
+            'classe' => $inscription->classe?->nom,
+            'etablissement' => \App\Models\Etablissement::find($etablissementId)?->nom,
+            'caissier' => $request->user()->name,
+            'date' => $paiement->date_paiement,
+            'heure' => $paiement->created_at?->format('H:i'),
+        ], 201);
     }
 
     public function suiviEleve(Request $request, $eleveId)
@@ -224,9 +356,15 @@ class FraisController extends Controller
     {
         $etablissementId = $request->user()->etablissement_id;
 
+        // Statistiques de SCOLARITE uniquement : les frais d'inscription / reinscription sont payes
+        // une fois et ne comptent ni dans les montants ni dans les statuts (meme filtre que
+        // Eleve::getStatutPaiementAttribute ; "scolarit%" couvre "Scolarite" et "Scolarité").
         $classes = Classe::where('etablissement_id', $etablissementId)
-            ->with('eleves.fraisEleves.echeances')
-            ->orderBy('nom')
+            ->with([
+                'eleves.fraisEleves' => fn ($q) => $q->whereHas('typeFrais', fn ($t) => $t->where('nom', 'ILIKE', 'scolarit%')),
+                'eleves.fraisEleves.echeances',
+            ])
+            ->ordonneesPedagogiquement()
             ->get();
 
         $resultat = $classes->map(function ($classe) {
@@ -295,6 +433,7 @@ class FraisController extends Controller
             'montant' => $request->montant,
             'moyen_paiement' => $request->moyen_paiement,
             'date_paiement' => $request->date_paiement,
+            'caissier_id' => $request->user()->id,
         ]);
 
         return response()->json($paiement, 201);

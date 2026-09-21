@@ -39,6 +39,17 @@ class EleveImportController extends Controller
         'meretelephone' => 'mere_telephone',
         'telephonemere' => 'mere_telephone',
         'telmere' => 'mere_telephone',
+        'nomdututeur' => 'tuteur_nom',
+        'tuteurnom' => 'tuteur_nom',
+        'nomtuteur' => 'tuteur_nom',
+        'telephonedututeur' => 'tuteur_telephone',
+        'tuteurtelephone' => 'tuteur_telephone',
+        'telephonetuteur' => 'tuteur_telephone',
+        'teltuteur' => 'tuteur_telephone',
+        'liendututeur' => 'tuteur_lien',
+        'tuteurlien' => 'tuteur_lien',
+        'lientuteur' => 'tuteur_lien',
+        'lienavecleleve' => 'tuteur_lien',
         'classe' => 'classe',
     ];
 
@@ -153,10 +164,22 @@ class EleveImportController extends Controller
         return null;
     }
 
-    private function verifierClasse(string $nomClasse, $classesNormalisees): ?Classe
+    /**
+     * Le fichier peut contenir un ID de classe (ex: 3, 7, 11) ou son nom.
+     * On cherche d'abord par ID, puis par nom normalise en fallback.
+     * $classesNormalisees est deja limitee a l'etablissement et chargee une seule
+     * fois : pas de requete par ligne.
+     */
+    private function verifierClasse(string $valeur, $classesNormalisees): ?Classe
     {
-        $cle = $this->normaliserTexte($nomClasse);
-        return $classesNormalisees->get($cle);
+        if (ctype_digit($valeur)) {
+            $parId = $classesNormalisees->firstWhere('id', (int) $valeur);
+            if ($parId) {
+                return $parId;
+            }
+        }
+
+        return $classesNormalisees->get($this->normaliserTexte($valeur));
     }
 
     private function verifierDoublon(array $donnee, int $etablissementId): bool
@@ -199,6 +222,9 @@ class EleveImportController extends Controller
             'pere_telephone' => $this->extraireValeur($ligne, $mapping, 'pere_telephone'),
             'mere_nom' => $this->extraireValeur($ligne, $mapping, 'mere_nom'),
             'mere_telephone' => $this->extraireValeur($ligne, $mapping, 'mere_telephone'),
+            'tuteur_nom' => $this->extraireValeur($ligne, $mapping, 'tuteur_nom'),
+            'tuteur_telephone' => $this->extraireValeur($ligne, $mapping, 'tuteur_telephone'),
+            'tuteur_lien' => $this->extraireValeur($ligne, $mapping, 'tuteur_lien'),
         ];
 
         $messageObligatoire = $this->verifierChampsObligatoires($donnee);
@@ -242,6 +268,11 @@ class EleveImportController extends Controller
 
     public function analyser(Request $request)
     {
+        // upload_max_filesize et post_max_size sont deja fixes a 10M dans php.ini
+        // (PHP_INI_PERDIR : ne peuvent pas etre changes ici, evalues avant que ce
+        // code ne s'execute). Seul memory_limit est modifiable a l'execution.
+        ini_set('memory_limit', '256M');
+
         $request->validate(['fichier' => 'required|file|mimes:xlsx,xls,csv']);
 
         $etablissementId = $request->user()->etablissement_id;
@@ -293,13 +324,13 @@ class EleveImportController extends Controller
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $feuille = $spreadsheet->getActiveSheet();
 
-        $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere'];
+        $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere', 'Nom du tuteur', 'Telephone du tuteur', "Lien avec l'eleve"];
         $feuille->fromArray($entetes, null, 'A1');
 
-        $exemple = ['Diallo', 'Aminata', 'LAK-2026-001', '6eme A', '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305'];
+        $exemple = ['Diallo', 'Aminata', 'LAK-2026-001', '6eme A', '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305', '', '', ''];
         $feuille->fromArray($exemple, null, 'A2');
 
-        foreach (range('A', 'J') as $colonne) {
+        foreach (range('A', 'M') as $colonne) {
             $feuille->getColumnDimension($colonne)->setAutoSize(true);
         }
 
@@ -318,15 +349,33 @@ class EleveImportController extends Controller
         $lignes = $request->input('lignes', []);
         $importes = 0;
 
+        // Calcule le numero de depart une seule fois (MAX existant, pas COUNT) pour
+        // eviter tout risque de collision de matricule sur un import de masse : avec
+        // COUNT()+1, un trou dans la sequence (eleve supprime, import partiel anterieur)
+        // fait retomber sur un matricule deja pris et provoque une violation de
+        // contrainte unique qui interrompt tout l'import en cours de route.
+        $prefixeMatricule = 'LAK-' . date('Y') . '-';
+        $dernierNumero = Eleve::withTrashed()
+            ->where('matricule', 'like', $prefixeMatricule . '%')
+            ->get(['matricule'])
+            ->max(fn($e) => (int) substr($e->matricule, strlen($prefixeMatricule))) ?? 0;
+
         foreach ($lignes as $donnee) {
-            $classe = Classe::find($donnee['classe_id'] ?? null);
+            $classe = Classe::where('id', $donnee['classe_id'] ?? null)
+                ->where('etablissement_id', $etablissementId)
+                ->first();
             if (!$classe) {
                 continue;
             }
 
-            $matricule = !empty($donnee['matricule'])
-                ? $donnee['matricule']
-                : 'LAK-' . date('Y') . '-' . str_pad(Eleve::where('etablissement_id', $etablissementId)->count() + 1, 3, '0', STR_PAD_LEFT);
+            if (!empty($donnee['matricule'])) {
+                $matricule = $donnee['matricule'];
+            } else {
+                do {
+                    $dernierNumero++;
+                    $matricule = $prefixeMatricule . str_pad($dernierNumero, 3, '0', STR_PAD_LEFT);
+                } while (Eleve::withTrashed()->where('matricule', $matricule)->exists());
+            }
 
             DB::transaction(function () use ($donnee, $classe, $etablissementId, $matricule) {
                 $eleve = Eleve::create([
@@ -353,6 +402,14 @@ class EleveImportController extends Controller
                         'type_lien' => 'mere',
                         'nom_complet' => $donnee['mere_nom'],
                         'telephone' => $donnee['mere_telephone'] ?? null,
+                    ]);
+                }
+                if (!empty($donnee['tuteur_nom'])) {
+                    $eleve->filiations()->create([
+                        'type_lien' => 'tuteur',
+                        'nom_complet' => $donnee['tuteur_nom'],
+                        'telephone' => $donnee['tuteur_telephone'] ?? null,
+                        'lien_avec_eleve' => $donnee['tuteur_lien'] ?? null,
                     ]);
                 }
             });

@@ -18,6 +18,7 @@ class AffectationController extends Controller
             ->map(fn($a) => [
                 'id' => $a->id,
                 'classe' => $a->classe->nom,
+                'classe_niveau' => $a->classe->niveau,
                 'classe_id' => $a->classe_id,
                 'matiere' => $a->matiere->nom,
                 'matiere_id' => $a->matiere_id,

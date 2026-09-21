@@ -50,6 +50,7 @@ class EleveController extends Controller
         $total = $eleves->count();
         $aJour = $eleves->where('statut_paiement', 'a_jour')->count();
         $enRetard = $eleves->where('statut_paiement', 'en_retard')->count();
+        $partiel = $eleves->where('statut_paiement', 'partiel')->count();
         $aEchoir = $eleves->where('statut_paiement', 'a_echoir')->count();
 
         return response()->json([
@@ -58,6 +59,7 @@ class EleveController extends Controller
                 'total' => $total,
                 'a_jour' => $aJour,
                 'en_retard' => $enRetard,
+                'partiel' => $partiel,
                 'a_echoir' => $aEchoir,
             ],
         ]);
@@ -68,7 +70,7 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $eleve = Eleve::where('etablissement_id', $etablissementId)
-            ->with(['inscriptionActive.classe', 'filiations', 'fraisEleves.echeances.paiements'])
+            ->with(['etablissement:id,nom', 'inscriptionActive.classe', 'inscriptionActive.sessionScolaire', 'filiations', 'fraisEleves.echeances.paiements'])
             ->findOrFail($id);
 
         return response()->json($eleve);

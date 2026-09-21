@@ -32,13 +32,17 @@ class EcheanceEleve extends Model
 
     public function getStatutAttribute()
     {
-        if ($this->solde <= 0) {
+        // Somme de tous les paiements de l'echeance, calculee une seule fois (1 requete).
+        $paye = $this->montant_paye;
+
+        if ($paye >= $this->montant) {
             return 'payee';
         }
-        if ($this->montant_paye > 0) {
+        if ($paye > 0) {
             return 'partiellement_payee';
         }
-        if (now()->greaterThan($this->date_limite)) {
+        // today() (et non now()) : une echeance due aujourd'hui n'est pas encore en retard.
+        if (today()->greaterThan($this->date_limite)) {
             return 'en_retard';
         }
         return 'a_echoir';

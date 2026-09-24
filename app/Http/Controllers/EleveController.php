@@ -40,6 +40,9 @@ class EleveController extends Controller
                 'inscription_active' => $eleve->inscriptionActive ? [
                     'type_inscription' => $eleve->inscriptionActive->type_inscription,
                     'statut' => $eleve->inscriptionActive->statut,
+                    'session_scolaire' => $eleve->inscriptionActive->sessionScolaire ? [
+                        'libelle' => $eleve->inscriptionActive->sessionScolaire->libelle,
+                    ] : null,
                 ] : null,
                 'photo_path' => $eleve->photo_path,
                 'statut_dossier' => $eleve->statut_dossier,

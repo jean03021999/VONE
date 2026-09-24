@@ -17,6 +17,7 @@ use App\Http\Controllers\AffectationController;
 use App\Http\Controllers\UtilisateurController;
 use App\Http\Controllers\AbonnementController;
 use App\Http\Controllers\StatsPubliquesController;
+use App\Http\Controllers\SalaireController;
 
 Route::get('/user', function (Request $request) {
     $user = $request->user();
@@ -127,4 +128,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/affectations', [AffectationController::class, 'index'])->middleware('permission:enseignants.voir');
     Route::post('/affectations', [AffectationController::class, 'store'])->middleware('permission:affectations.gerer');
     Route::delete('/affectations/{id}', [AffectationController::class, 'destroy'])->middleware('permission:affectations.gerer');
+});
+
+Route::middleware(['auth:sanctum', 'permission:enseignants.salaires.voir'])->group(function () {
+    Route::get('/salaires', [SalaireController::class, 'index']);
+    Route::get('/salaires/{id}', [SalaireController::class, 'show']);
+});
+
+Route::middleware(['auth:sanctum', 'permission:enseignants.salaires.gerer'])->group(function () {
+    Route::post('/salaires', [SalaireController::class, 'store']);
+    Route::post('/salaires/{id}/payer', [SalaireController::class, 'payer']);
+    Route::delete('/salaires/{id}', [SalaireController::class, 'destroy']);
 });

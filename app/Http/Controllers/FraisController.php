@@ -254,7 +254,7 @@ class FraisController extends Controller
         $eleve = \App\Models\Eleve::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($eleveId);
 
         $fraisEleves = FraisEleve::where('eleve_id', $eleve->id)
-            ->with(['typeFrais', 'echeances.paiements'])->get()
+            ->with(['typeFrais', 'echeances' => fn ($q) => $q->withSum('paiements', 'montant')])->get()
             ->map(fn($fe) => [
                 'id' => $fe->id,
                 'type_frais' => $fe->typeFrais->nom,
@@ -341,7 +341,8 @@ class FraisController extends Controller
         $classes = Classe::where('etablissement_id', $etablissementId)
             ->with([
                 'eleves.fraisEleves' => fn ($q) => $q->whereHas('typeFrais', fn ($t) => $t->where('nom', 'ILIKE', 'scolarit%')),
-                'eleves.fraisEleves.echeances',
+                // Somme des paiements prechargee : montant_paye / solde / statut sans requete par echeance.
+                'eleves.fraisEleves.echeances' => fn ($q) => $q->withSum('paiements', 'montant'),
             ])
             ->ordonneesPedagogiquement()
             ->get();

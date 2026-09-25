@@ -15,7 +15,8 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $query = Eleve::where('etablissement_id', $etablissementId)
-            ->with('inscriptionActive.classe', 'inscriptionActive.sessionScolaire');
+            ->with('inscriptionActive.classe', 'inscriptionActive.sessionScolaire')
+            ->avecStatutPaiement();
 
         if ($request->filled('classe_id')) {
             $query->whereHas('inscriptionActive', fn ($q) => $q->where('classe_id', $request->classe_id));

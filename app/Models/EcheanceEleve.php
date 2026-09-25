@@ -20,9 +20,21 @@ class EcheanceEleve extends Model
         return $this->hasMany(Paiement::class, 'echeance_eleve_id');
     }
 
+    /**
+     * Total paye sur l'echeance. Sans requete si la somme a ete prechargee
+     * (withSum('paiements', 'montant')) ou si les paiements sont deja charges ;
+     * sinon une requete, toujours a jour (utilise sous verrou lors d'un paiement).
+     */
     public function getMontantPayeAttribute()
     {
-        return $this->paiements()->sum('montant');
+        if (array_key_exists('paiements_sum_montant', $this->attributes)) {
+            return (float) $this->attributes['paiements_sum_montant'];
+        }
+        if ($this->relationLoaded('paiements')) {
+            return (float) $this->paiements->sum('montant');
+        }
+
+        return (float) $this->paiements()->sum('montant');
     }
 
     public function getSoldeAttribute()

@@ -60,6 +60,27 @@ class Eleve extends Model
     }
 
     /**
+     * Frais de scolarite seuls ("scolarit%" couvre "Scolarite" et "Scolarité"). A precharger avec
+     * scopeAvecStatutPaiement() pour calculer statut_paiement sans requete par eleve.
+     */
+    public function fraisScolarite()
+    {
+        return $this->hasMany(FraisEleve::class)
+            ->whereHas('typeFrais', fn ($q) => $q->where('nom', 'ILIKE', 'scolarit%'));
+    }
+
+    /**
+     * Precharge de quoi calculer statut_paiement pour toute une liste en quelques requetes
+     * (au lieu de 2 par eleve) : frais de scolarite, echeances et somme de leurs paiements.
+     */
+    public function scopeAvecStatutPaiement($query)
+    {
+        return $query->with([
+            'fraisScolarite.echeances' => fn ($q) => $q->withSum('paiements', 'montant'),
+        ]);
+    }
+
+    /**
      * Statut global de paiement de l'eleve, calcule sur les seules echeances de SCOLARITE
      * (types de frais dont le nom commence par "scolarit"), dans l'ordre de priorite :
      * - en_retard : au moins une echeance avec reste a payer et date limite depassee
@@ -75,16 +96,15 @@ class Eleve extends Model
     public function getStatutPaiementAttribute()
     {
         // Seuls les frais de scolarite comptent : les frais d'inscription / reinscription sont
-        // payes une fois et ne doivent pas influencer ce statut. "scolarit%" couvre "Scolarite"
-        // et "Scolarité" (l'accent vient apres le prefixe).
-        $fraisScolarite = $this->fraisEleves()
-            ->whereHas('typeFrais', fn ($q) => $q->where('nom', 'ILIKE', 'scolarit%'))
-            ->pluck('id');
-
-        // withSum = somme de tous les paiements de chaque echeance, en une seule requete.
-        $echeances = EcheanceEleve::whereIn('frais_eleve_id', $fraisScolarite)
-            ->withSum('paiements', 'montant')
-            ->get();
+        // payes une fois et ne doivent pas influencer ce statut.
+        if ($this->relationLoaded('fraisScolarite')) {
+            $echeances = $this->fraisScolarite->flatMap->echeances;
+        } else {
+            // withSum = somme de tous les paiements de chaque echeance, en une seule requete.
+            $echeances = EcheanceEleve::whereIn('frais_eleve_id', $this->fraisScolarite()->pluck('frais_eleves.id'))
+                ->withSum('paiements', 'montant')
+                ->get();
+        }
 
         if ($echeances->isEmpty()) {
             return 'aucun_frais';
@@ -92,8 +112,8 @@ class Eleve extends Model
 
         $aujourdhui = today()->toDateString();
         $lignes = $echeances->map(fn ($e) => [
-            'paye' => (float) $e->paiements_sum_montant,
-            'reste' => (float) $e->montant - (float) $e->paiements_sum_montant,
+            'paye' => $e->montant_paye,
+            'reste' => (float) $e->montant - $e->montant_paye,
             'limite' => substr((string) $e->date_limite, 0, 10),
         ]);
 

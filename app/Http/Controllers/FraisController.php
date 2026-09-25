@@ -9,19 +9,13 @@ use App\Models\Paiement;
 use App\Models\Classe;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use App\Services\FraisService;
 
 class FraisController extends Controller
 {
-    /**
-     * Les frais d'inscription / reinscription se gerent eleve par eleve (appliquerInscription) :
-     * ils ne doivent jamais etre appliques en masse a toute une classe par une grille.
-     */
     private function estFraisParEleve(GrilleTarifaire $grille): bool
     {
-        $nom = Str::of($grille->typeFrais?->nom ?? '')->ascii()->lower()->toString();
-
-        return in_array($nom, ['inscription', 'reinscription'], true);
+        return FraisService::estFraisParEleve($grille);
     }
 
     public function typesFrais(Request $request)
@@ -111,29 +105,14 @@ class FraisController extends Controller
         }
         $crees = 0;
 
-        $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))->get();
+        $service = new FraisService();
+        $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))
+            ->with('inscriptionActive')
+            ->get();
         foreach ($eleves as $eleve) {
-            $existe = FraisEleve::where('eleve_id', $eleve->id)
-                ->where('type_frais_id', $grille->type_frais_id)
-                ->where('session_scolaire_id', $grille->session_scolaire_id)->exists();
-            if ($existe) continue;
-
-            $fraisEleve = FraisEleve::create([
-                'eleve_id' => $eleve->id,
-                'type_frais_id' => $grille->type_frais_id,
-                'session_scolaire_id' => $grille->session_scolaire_id,
-                'montant_total' => $grille->montant,
-                'montant_original' => $grille->montant,
-            ]);
-
-            foreach ($grille->echeances as $ech) {
-                $fraisEleve->echeances()->create([
-                    'libelle' => $ech->libelle,
-                    'montant' => $ech->montant,
-                    'date_limite' => $ech->date_limite,
-                ]);
+            if ($service->creerFraisDepuisGrille($eleve->id, $grille, $eleve->inscriptionActive?->id)) {
+                $crees++;
             }
-            $crees++;
         }
 
         return $crees;
@@ -420,23 +399,82 @@ class FraisController extends Controller
             'date_paiement' => 'required|date',
         ]);
 
-        $echeance = \App\Models\EcheanceEleve::findOrFail($request->echeance_eleve_id);
+        $etablissementId = $request->user()->etablissement_id;
 
-        if ($request->montant > $echeance->solde) {
-            return response()->json(['message' => 'Le montant depasse le solde restant (' . $echeance->solde . ' GNF).'], 422);
+        $echeance = \App\Models\EcheanceEleve::whereHas(
+            'fraisEleve.eleve',
+            fn($q) => $q->where('etablissement_id', $etablissementId)
+        )->findOrFail($request->echeance_eleve_id);
+
+        // Un versement peut couvrir plusieurs echeances (ex. toute l'annee en une fois) : il solde
+        // d'abord l'echeance choisie, puis le surplus est reparti sur les autres echeances non
+        // soldees du meme frais, par date limite. Un paiement (meme reference) par echeance touchee.
+        $resultat = DB::transaction(function () use ($request, $echeance) {
+            $echeances = \App\Models\EcheanceEleve::where('frais_eleve_id', $echeance->frais_eleve_id)
+                ->orderBy('date_limite')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->sortBy(fn($e) => $e->id === $echeance->id ? 0 : 1)
+                ->values();
+
+            $resteTotal = $echeances->sum(fn($e) => max(0, (float) $e->solde));
+            $montant = (float) $request->montant;
+
+            if ($montant > $resteTotal) {
+                return ['erreur' => 'Le montant depasse le reste total a payer sur ces frais (' . (int) $resteTotal . ' GNF).'];
+            }
+
+            $eleveId = $echeance->fraisEleve->eleve_id;
+            $reference = 'PAY-' . now()->year . '-' . $eleveId . '-' . now()->timestamp;
+            $paiements = [];
+            foreach ($echeances as $ech) {
+                if ($montant <= 0) {
+                    break;
+                }
+                $solde = max(0, (float) $ech->solde);
+                if ($solde <= 0) {
+                    continue;
+                }
+                $part = min($solde, $montant);
+                $paiements[] = Paiement::create([
+                    'eleve_id' => $eleveId,
+                    'echeance_eleve_id' => $ech->id,
+                    'libelle' => $ech->libelle,
+                    'montant' => $part,
+                    'moyen_paiement' => $request->moyen_paiement,
+                    'date_paiement' => $request->date_paiement,
+                    'reference' => $reference,
+                    'caissier_id' => $request->user()->id,
+                ]);
+                $montant -= $part;
+            }
+
+            return ['paiements' => $paiements, 'reference' => $reference];
+        });
+
+        if (isset($resultat['erreur'])) {
+            return response()->json(['message' => $resultat['erreur']], 422);
         }
 
-        $paiement = Paiement::create([
-            'eleve_id' => $echeance->fraisEleve->eleve_id,
-            'echeance_eleve_id' => $echeance->id,
-            'libelle' => $echeance->libelle,
-            'montant' => $request->montant,
-            'moyen_paiement' => $request->moyen_paiement,
-            'date_paiement' => $request->date_paiement,
-            'caissier_id' => $request->user()->id,
-        ]);
+        $premier = $resultat['paiements'][0];
 
-        return response()->json($paiement, 201);
+        // Champs du premier paiement conserves a la racine pour la compatibilite ; `montant` est le
+        // total verse et `paiements` le detail par echeance (pour le recu).
+        return response()->json([
+            'id' => $premier->id,
+            'reference' => $resultat['reference'],
+            'montant' => collect($resultat['paiements'])->sum('montant'),
+            'moyen_paiement' => $premier->moyen_paiement,
+            'date_paiement' => $premier->date_paiement,
+            'created_at' => $premier->created_at,
+            'paiements' => collect($resultat['paiements'])->map(fn($p) => [
+                'id' => $p->id,
+                'echeance_eleve_id' => $p->echeance_eleve_id,
+                'libelle' => $p->libelle,
+                'montant' => (float) $p->montant,
+            ])->values(),
+        ], 201);
     }
 }
 

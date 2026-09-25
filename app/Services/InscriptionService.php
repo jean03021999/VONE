@@ -22,7 +22,7 @@ class InscriptionService
             throw new Exception('Une inscription active existe deja pour cet eleve sur cette session.');
         }
 
-        return Inscription::create([
+        $inscription = Inscription::create([
             'eleve_id' => $eleve->id,
             'session_scolaire_id' => $classe->session_scolaire_id,
             'classe_id' => $classe->id,
@@ -30,6 +30,11 @@ class InscriptionService
             'statut' => 'active',
             'date_inscription' => $dateInscription ?? now()->toDateString(),
         ]);
+
+        // L'eleve recoit tout de suite les frais (scolarite...) des grilles deja en place pour sa classe.
+        (new FraisService())->appliquerGrillesAInscription($inscription);
+
+        return $inscription;
     }
 
     public function reinscrire(Eleve $eleve, Classe $classe): Inscription
@@ -59,6 +64,8 @@ class InscriptionService
             'date_changement' => now()->toDateString(),
             'user_id' => Auth::id(),
         ]);
+
+        (new FraisService())->appliquerGrillesAInscription($nouvelleInscription);
 
         return $nouvelleInscription;
     }

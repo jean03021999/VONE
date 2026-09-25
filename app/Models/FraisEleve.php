@@ -27,6 +27,11 @@ class FraisEleve extends Model
         return $this->belongsTo(TypeFrais::class);
     }
 
+    public function grilleTarifaire()
+    {
+        return $this->belongsTo(GrilleTarifaire::class);
+    }
+
     public function echeances()
     {
         return $this->hasMany(EcheanceEleve::class);

@@ -36,6 +36,8 @@ class EleveController extends Controller
                 'nom' => $eleve->nom,
                 'prenom' => $eleve->prenom,
                 'matricule' => $eleve->matricule,
+                'date_naissance' => $eleve->date_naissance,
+                'lieu_naissance' => $eleve->lieu_naissance,
                 'classe' => $eleve->inscriptionActive?->classe?->nom,
                 'inscription_active' => $eleve->inscriptionActive ? [
                     'type_inscription' => $eleve->inscriptionActive->type_inscription,
@@ -58,6 +60,7 @@ class EleveController extends Controller
 
         return response()->json([
             'eleves' => $eleves,
+            'etablissement' => $request->user()->etablissement?->nom,
             'stats' => [
                 'total' => $total,
                 'a_jour' => $aJour,

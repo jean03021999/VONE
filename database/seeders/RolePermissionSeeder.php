@@ -30,6 +30,8 @@ class RolePermissionSeeder extends Seeder
             'abonnement.voir', 'abonnement.gerer',
         ];
 
+        // Source de verite des permissions par role : correspond a l'etat en base (etablissement 2)
+        // au 2026-09-25. Toute correction de permission se fait ici, pas a la main en base.
         $matrice = [
             'Comptable' => [
                 'eleves.voir', 'eleves.creer', 'eleves.modifier', 'eleves.importer',
@@ -48,10 +50,19 @@ class RolePermissionSeeder extends Seeder
                 'notes.voir', 'notes.valider', 'notes.publier',
                 'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
             ],
-            'Proviseur' => array_values(array_diff($catalogue, [
-                'abonnement.voir', 'abonnement.gerer',
-                'eleves.creer', 'eleves.modifier', 'eleves.importer',
-            ])),
+            // Liste explicite (et non "catalogue sauf...") : une permission ajoutee au catalogue ne doit
+            // pas etre accordee automatiquement au Proviseur.
+            'Proviseur' => [
+                'eleves.voir',
+                'enseignants.voir', 'enseignants.creer', 'enseignants.contrats.gerer',
+                'enseignants.salaires.voir', 'enseignants.salaires.gerer',
+                'matieres.gerer', 'classes.voir', 'classes.gerer', 'affectations.gerer',
+                'emploi_du_temps.voir', 'emploi_du_temps.gerer',
+                'periodes.gerer',
+                'notes.voir', 'notes.saisir', 'notes.soumettre', 'notes.valider', 'notes.publier',
+                'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
+                'frais.voir', 'frais.creer', 'frais.paiement.enregistrer', 'frais.stats.voir',
+            ],
             'Censeur' => [
                 'eleves.voir',
                 'enseignants.voir',
@@ -68,6 +79,11 @@ class RolePermissionSeeder extends Seeder
         ];
 
         foreach ($matrice as $nomRole => $nomsPermissions) {
+            $inconnues = array_diff($nomsPermissions, $catalogue);
+            if ($inconnues) {
+                throw new \RuntimeException("Role {$nomRole} : permission(s) hors catalogue : " . implode(', ', $inconnues));
+            }
+
             $idsPermissions = Permission::whereIn('nom', $nomsPermissions)->pluck('id');
 
             $modele = Role::updateOrCreate(

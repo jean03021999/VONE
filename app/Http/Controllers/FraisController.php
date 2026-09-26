@@ -184,44 +184,14 @@ class FraisController extends Controller
             ], 422);
         }
 
-        $resultat = DB::transaction(function () use ($request, $eleve, $typeFrais, $inscription, $grille) {
-            $frais = FraisEleve::firstOrCreate(
-                [
-                    'eleve_id' => $eleve->id,
-                    'type_frais_id' => $typeFrais->id,
-                    'session_scolaire_id' => $inscription->session_scolaire_id,
-                ],
-                [
-                    'montant_total' => $grille->montant,
-                    'montant_original' => $grille->montant,
-                    'inscription_id' => $inscription->id,
-                    'grille_tarifaire_id' => $grille->id,
-                ]
-            );
-
-            if (! $frais->wasRecentlyCreated) {
-                return null;
-            }
-
-            $echeance = $frais->echeances()->create([
-                'libelle' => $typeFrais->nom,
-                'montant' => $grille->montant,
-                'date_limite' => today()->toDateString(),
-            ]);
-
-            $paiement = Paiement::create([
-                'eleve_id' => $eleve->id,
-                'echeance_eleve_id' => $echeance->id,
-                'libelle' => $echeance->libelle,
-                'montant' => $request->montant,
-                'moyen_paiement' => $request->moyen_paiement,
-                'date_paiement' => today()->toDateString(),
-                'reference' => 'INS-' . now()->year . '-' . $eleve->id . '-' . now()->timestamp,
-                'caissier_id' => $request->user()->id,
-            ]);
-
-            return compact('frais', 'paiement');
-        });
+        $resultat = (new FraisService())->encaisserFraisInscription(
+            $inscription,
+            $typeFrais,
+            $grille,
+            (float) $request->montant,
+            $request->moyen_paiement,
+            $request->user()->id
+        );
 
         if ($resultat === null) {
             return response()->json(['message' => 'Frais déjà appliqués'], 409);

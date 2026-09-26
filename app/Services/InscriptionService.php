@@ -11,7 +11,12 @@ use Exception;
 
 class InscriptionService
 {
-    public function inscrire(Eleve $eleve, Classe $classe, ?string $dateInscription = null): Inscription
+    /**
+     * $typeInscription : 'nouvelle' (defaut) ou 'reinscription'. Le second sert aux anciens eleves
+     * sans historique dans LAKOLI (ex. premier import Excel d'une ecole pilote) ; pour un eleve deja
+     * inscrit une annee precedente dans LAKOLI, utiliser reinscrire().
+     */
+    public function inscrire(Eleve $eleve, Classe $classe, ?string $dateInscription = null, string $typeInscription = 'nouvelle'): Inscription
     {
         $inscriptionExistante = Inscription::where('eleve_id', $eleve->id)
             ->where('session_scolaire_id', $classe->session_scolaire_id)
@@ -26,7 +31,7 @@ class InscriptionService
             'eleve_id' => $eleve->id,
             'session_scolaire_id' => $classe->session_scolaire_id,
             'classe_id' => $classe->id,
-            'type_inscription' => 'nouvelle',
+            'type_inscription' => $typeInscription === 'reinscription' ? 'reinscription' : 'nouvelle',
             'statut' => 'active',
             'date_inscription' => $dateInscription ?? now()->toDateString(),
         ]);

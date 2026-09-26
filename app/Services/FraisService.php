@@ -5,6 +5,9 @@ namespace App\Services;
 use App\Models\FraisEleve;
 use App\Models\GrilleTarifaire;
 use App\Models\Inscription;
+use App\Models\Paiement;
+use App\Models\TypeFrais;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class FraisService
@@ -85,5 +88,83 @@ class FraisService
         }
 
         return $crees;
+    }
+
+    /**
+     * Type de frais "Inscription" ou "Reinscription" de l'etablissement (nom compare sans accent ni
+     * casse), selon le type d'inscription ('nouvelle' / 'inscription' ou 'reinscription').
+     */
+    public function typeFraisInscription(int $etablissementId, string $typeInscription): ?TypeFrais
+    {
+        $cherche = $typeInscription === 'reinscription' ? 'reinscription' : 'inscription';
+
+        return TypeFrais::where('etablissement_id', $etablissementId)
+            ->get()
+            ->first(fn ($t) => Str::of($t->nom)->ascii()->lower()->toString() === $cherche);
+    }
+
+    /** Grille active de ce type de frais pour la classe et la session de l'inscription. */
+    public function grilleInscription(Inscription $inscription, TypeFrais $typeFrais): ?GrilleTarifaire
+    {
+        return GrilleTarifaire::where('etablissement_id', $typeFrais->etablissement_id)
+            ->where('classe_id', $inscription->classe_id)
+            ->where('session_scolaire_id', $inscription->session_scolaire_id)
+            ->where('type_frais_id', $typeFrais->id)
+            ->where('actif', true)
+            ->first();
+    }
+
+    /**
+     * Enregistre les frais d'inscription / reinscription d'un eleve et leur paiement (echeance
+     * unique du montant de la grille, paiement de $montant). Utilise par la caisse
+     * (FraisController::appliquerInscription) et par l'import Excel. Retourne null si ces frais
+     * ont deja ete appliques a l'eleve sur la session.
+     */
+    public function encaisserFraisInscription(
+        Inscription $inscription,
+        TypeFrais $typeFrais,
+        GrilleTarifaire $grille,
+        float $montant,
+        string $moyenPaiement,
+        ?int $caissierId
+    ): ?array {
+        return DB::transaction(function () use ($inscription, $typeFrais, $grille, $montant, $moyenPaiement, $caissierId) {
+            $frais = FraisEleve::firstOrCreate(
+                [
+                    'eleve_id' => $inscription->eleve_id,
+                    'type_frais_id' => $typeFrais->id,
+                    'session_scolaire_id' => $inscription->session_scolaire_id,
+                ],
+                [
+                    'montant_total' => $grille->montant,
+                    'montant_original' => $grille->montant,
+                    'inscription_id' => $inscription->id,
+                    'grille_tarifaire_id' => $grille->id,
+                ]
+            );
+
+            if (! $frais->wasRecentlyCreated) {
+                return null;
+            }
+
+            $echeance = $frais->echeances()->create([
+                'libelle' => $typeFrais->nom,
+                'montant' => $grille->montant,
+                'date_limite' => today()->toDateString(),
+            ]);
+
+            $paiement = Paiement::create([
+                'eleve_id' => $inscription->eleve_id,
+                'echeance_eleve_id' => $echeance->id,
+                'libelle' => $echeance->libelle,
+                'montant' => $montant,
+                'moyen_paiement' => $moyenPaiement,
+                'date_paiement' => today()->toDateString(),
+                'reference' => 'INS-' . now()->year . '-' . $inscription->eleve_id . '-' . now()->timestamp,
+                'caissier_id' => $caissierId,
+            ]);
+
+            return compact('frais', 'paiement');
+        });
     }
 }

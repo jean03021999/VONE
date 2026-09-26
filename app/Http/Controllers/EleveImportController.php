@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Eleve;
 use App\Models\Classe;
+use App\Models\GrilleTarifaire;
+use App\Models\Inscription;
+use App\Services\FraisService;
 use App\Services\InscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +20,20 @@ class EleveImportController extends Controller
     private array $variantesPrenom = ['prenom', 'prenoms', 'premierprenom', 'firstname'];
 
     private array $synonymesParMotif = [
+        // Inscription ou reinscription (ex. "Type d'inscription", "Nouveau/Ancien", "Ancien eleve")
+        'typedinscription' => 'type_inscription',
+        'typedeinscription' => 'type_inscription',
+        'typeinscription' => 'type_inscription',
+        'inscriptionreinscription' => 'type_inscription',
+        'nouveauancien' => 'type_inscription',
+        'ancieneleve' => 'type_inscription',
+        // Frais d'inscription / reinscription deja encaisses par l'ecole (montant en GNF)
+        'fraisdinscription' => 'frais_inscription',
+        'fraisdeinscription' => 'frais_inscription',
+        'fraisinscription' => 'frais_inscription',
+        'fraisdereinscription' => 'frais_inscription',
+        'fraisreinscription' => 'frais_inscription',
+        'montantinscription' => 'frais_inscription',
         'matricule' => 'matricule',
         'datedenaissance' => 'date_naissance',
         'datenaissance' => 'date_naissance',
@@ -150,6 +167,38 @@ class EleveImportController extends Controller
         return trim((string) ($ligne[$mapping[$champ]] ?? ''));
     }
 
+    /**
+     * Type d'inscription lu dans le fichier : 'inscription', 'reinscription', null (cellule vide :
+     * inscription par defaut) ou false (valeur non reconnue).
+     */
+    private function lireTypeInscription(string $valeur): string|null|false
+    {
+        $v = $this->normaliserTexte($valeur);
+        if ($v === '') {
+            return null;
+        }
+        if (in_array($v, ['r', 're', 'a', 'ancien', 'ancienne', 'ancieneleve', 'oui', 'o'], true)
+            || str_starts_with($v, 'reinscri') || str_starts_with($v, 'ancien')) {
+            return 'reinscription';
+        }
+        if (in_array($v, ['n', 'i', 'nouveau', 'nouvelle', 'nouveaueleve', 'non'], true)
+            || str_starts_with($v, 'inscri') || str_starts_with($v, 'nouv')) {
+            return 'inscription';
+        }
+        return false;
+    }
+
+    /** Montant en GNF ("200 000", "200000 GNF", "200.000") ; null si vide, false si illisible. */
+    private function lireMontant(string $valeur): float|null|false
+    {
+        $v = preg_replace('/(gnf|fg|\s|\x{00A0}|\x{202F})/iu', '', $valeur);
+        if ($v === '' || $v === '0') {
+            return null;
+        }
+        $v = str_replace([',', '.'], '', $v);
+        return ctype_digit($v) ? (float) $v : false;
+    }
+
     private function verifierChampsObligatoires(array $donnee): ?string
     {
         if ($donnee['nom'] === '') {
@@ -182,7 +231,7 @@ class EleveImportController extends Controller
         return $classesNormalisees->get($this->normaliserTexte($valeur));
     }
 
-    private function verifierDoublon(array $donnee, int $etablissementId): bool
+    private function trouverEleveExistant(array $donnee, int $etablissementId): ?Eleve
     {
         return Eleve::where('etablissement_id', $etablissementId)
             ->where(function ($q) use ($donnee) {
@@ -194,7 +243,35 @@ class EleveImportController extends Controller
                         ->where('prenom', $donnee['prenom'])
                         ->where('date_naissance', $donnee['date_naissance']);
                 });
-            })->exists();
+            })->first();
+    }
+
+    private function estInscritSurSession(int $eleveId, int $sessionId): bool
+    {
+        return Inscription::where('eleve_id', $eleveId)
+            ->where('session_scolaire_id', $sessionId)
+            ->where('statut', 'active')
+            ->exists();
+    }
+
+    /**
+     * Grilles actives d'inscription / reinscription de l'etablissement, par classe :
+     * [classe_id => ['inscription' => GrilleTarifaire, 'reinscription' => GrilleTarifaire]].
+     */
+    private function grillesInscription(int $etablissementId): array
+    {
+        $grilles = [];
+        GrilleTarifaire::where('etablissement_id', $etablissementId)
+            ->where('actif', true)
+            ->with('typeFrais')
+            ->get()
+            ->each(function ($g) use (&$grilles) {
+                $type = $this->normaliserTexte($g->typeFrais?->nom);
+                if (in_array($type, ['inscription', 'reinscription'], true)) {
+                    $grilles[$g->classe_id][$type] = $g;
+                }
+            });
+        return $grilles;
     }
 
     private function cleDoublon(array $donnee): string
@@ -205,7 +282,7 @@ class EleveImportController extends Controller
         return 'identite:' . mb_strtolower($donnee['nom']) . '|' . mb_strtolower($donnee['prenom']) . '|' . $donnee['date_naissance'];
     }
 
-    private function analyserLigne(array $ligne, array $mapping, $classesNormalisees, int $etablissementId): ?array
+    private function analyserLigne(array $ligne, array $mapping, $classesNormalisees, int $etablissementId, array $grillesInscription): ?array
     {
         if (empty(array_filter($ligne, fn($v) => trim((string) $v) !== ''))) {
             return null;
@@ -225,6 +302,11 @@ class EleveImportController extends Controller
             'tuteur_nom' => $this->extraireValeur($ligne, $mapping, 'tuteur_nom'),
             'tuteur_telephone' => $this->extraireValeur($ligne, $mapping, 'tuteur_telephone'),
             'tuteur_lien' => $this->extraireValeur($ligne, $mapping, 'tuteur_lien'),
+            'type_inscription_brut' => $this->extraireValeur($ligne, $mapping, 'type_inscription'),
+            'frais_inscription_brut' => $this->extraireValeur($ligne, $mapping, 'frais_inscription'),
+            'type_inscription' => null,
+            'frais_inscription' => null,
+            'eleve_existant_id' => null,
         ];
 
         $messageObligatoire = $this->verifierChampsObligatoires($donnee);
@@ -255,14 +337,53 @@ class EleveImportController extends Controller
         }
         $donnee['classe_id'] = $classe->id;
 
-        if ($this->verifierDoublon($donnee, $etablissementId)) {
-            $donnee['statut'] = 'doublon';
-            $donnee['message'] = 'Eleve deja existant (matricule ou identite en double).';
+        $typeLu = $this->lireTypeInscription($donnee['type_inscription_brut']);
+        if ($typeLu === false) {
+            $donnee['statut'] = 'erreur';
+            $donnee['message'] = "Type d'inscription non reconnu : " . $donnee['type_inscription_brut'] . ' (attendu : Inscription ou Réinscription).';
             return $donnee;
         }
 
+        $message = '';
+        $existant = $this->trouverEleveExistant($donnee, $etablissementId);
+        if ($existant) {
+            if ($this->estInscritSurSession($existant->id, $classe->session_scolaire_id)) {
+                $donnee['statut'] = 'doublon';
+                $donnee['message'] = 'Élève déjà inscrit sur cette session (matricule ou identité déjà présents).';
+                return $donnee;
+            }
+            // Deja connu de LAKOLI (annee precedente) : reinscription automatique.
+            $donnee['eleve_existant_id'] = $existant->id;
+            $donnee['type_inscription'] = 'reinscription';
+            $message = 'Ancien élève déjà enregistré dans LAKOLI : sera réinscrit.';
+        } else {
+            $donnee['type_inscription'] = $typeLu ?? 'inscription';
+        }
+
+        $montant = $this->lireMontant($donnee['frais_inscription_brut']);
+        if ($montant === false) {
+            $donnee['statut'] = 'erreur';
+            $donnee['message'] = "Frais d'inscription illisibles : " . $donnee['frais_inscription_brut'];
+            return $donnee;
+        }
+        if ($montant !== null) {
+            $libelleFrais = $donnee['type_inscription'] === 'reinscription' ? 'Réinscription' : 'Inscription';
+            $grille = $grillesInscription[$classe->id][$donnee['type_inscription']] ?? null;
+            if (! $grille) {
+                $donnee['statut'] = 'erreur';
+                $donnee['message'] = "Aucune grille « {$libelleFrais} » pour la classe {$classe->nom} : impossible d'enregistrer les frais payés.";
+                return $donnee;
+            }
+            if ($montant > (float) $grille->montant) {
+                $donnee['statut'] = 'erreur';
+                $donnee['message'] = "Frais payés supérieurs aux frais de {$libelleFrais} de la classe (" . (int) $grille->montant . ' GNF).';
+                return $donnee;
+            }
+            $donnee['frais_inscription'] = $montant;
+        }
+
         $donnee['statut'] = 'ok';
-        $donnee['message'] = '';
+        $donnee['message'] = $message;
         return $donnee;
     }
 
@@ -286,10 +407,12 @@ class EleveImportController extends Controller
             ->get()
             ->keyBy(fn($c) => $this->normaliserTexte($c->nom));
 
+        $grillesInscription = $this->grillesInscription($etablissementId);
+
         $resultats = [];
         $clesVuesDansLeFichier = [];
         foreach ($lignesBrutes as $ligne) {
-            $donnee = $this->analyserLigne($ligne, $mapping, $classesNormalisees, $etablissementId);
+            $donnee = $this->analyserLigne($ligne, $mapping, $classesNormalisees, $etablissementId, $grillesInscription);
             if ($donnee === null) {
                 continue;
             }
@@ -307,14 +430,21 @@ class EleveImportController extends Controller
             $resultats[] = $donnee;
         }
 
+        $valides = collect($resultats)->where('statut', 'ok');
+
         return response()->json([
             'colonnes_detectees' => array_keys($mapping),
             'lignes' => $resultats,
             'stats' => [
                 'total' => count($resultats),
-                'valides' => collect($resultats)->where('statut', 'ok')->count(),
+                'valides' => $valides->count(),
                 'doublons' => collect($resultats)->where('statut', 'doublon')->count(),
                 'erreurs' => collect($resultats)->where('statut', 'erreur')->count(),
+                'inscriptions' => $valides->where('type_inscription', 'inscription')->count(),
+                'reinscriptions' => $valides->where('type_inscription', 'reinscription')->count(),
+                'anciens_lakoli' => $valides->whereNotNull('eleve_existant_id')->count(),
+                'frais_payes' => $valides->whereNotNull('frais_inscription')->count(),
+                'montant_frais_payes' => $valides->sum('frais_inscription'),
             ],
         ]);
     }
@@ -324,13 +454,16 @@ class EleveImportController extends Controller
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $feuille = $spreadsheet->getActiveSheet();
 
-        $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere', 'Nom du tuteur', 'Telephone du tuteur', "Lien avec l'eleve"];
+        $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere', 'Nom du tuteur', 'Telephone du tuteur', "Lien avec l'eleve", "Type d'inscription", "Frais d'inscription payes"];
         $feuille->fromArray($entetes, null, 'A1');
 
-        $exemple = ['Diallo', 'Aminata', 'LAK-2026-001', '6eme A', '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305', '', '', ''];
-        $feuille->fromArray($exemple, null, 'A2');
+        $exemples = [
+            ['Diallo', 'Aminata', 'LAK-2026-001', '6eme A', '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305', '', '', '', 'Inscription', '200000'],
+            ['Camara', 'Ibrahima', '', '6eme A', '05/09/2013', 'Kindia', 'Sekou Camara', '+224622000111', '', '', '', '', '', 'Réinscription', ''],
+        ];
+        $feuille->fromArray($exemples, null, 'A2');
 
-        foreach (range('A', 'M') as $colonne) {
+        foreach (range('A', 'O') as $colonne) {
             $feuille->getColumnDimension($colonne)->setAutoSize(true);
         }
 
@@ -348,6 +481,9 @@ class EleveImportController extends Controller
         $etablissementId = $request->user()->etablissement_id;
         $lignes = $request->input('lignes', []);
         $importes = 0;
+        $reinscrits = 0;
+        $fraisEnregistres = 0;
+        $erreurs = [];
 
         // Calcule le numero de depart une seule fois (MAX existant, pas COUNT) pour
         // eviter tout risque de collision de matricule sur un import de masse : avec
@@ -360,6 +496,9 @@ class EleveImportController extends Controller
             ->get(['matricule'])
             ->max(fn($e) => (int) substr($e->matricule, strlen($prefixeMatricule))) ?? 0;
 
+        $inscriptionService = new InscriptionService();
+        $fraisService = new FraisService();
+
         foreach ($lignes as $donnee) {
             $classe = Classe::where('id', $donnee['classe_id'] ?? null)
                 ->where('etablissement_id', $etablissementId)
@@ -368,57 +507,107 @@ class EleveImportController extends Controller
                 continue;
             }
 
-            if (!empty($donnee['matricule'])) {
-                $matricule = $donnee['matricule'];
-            } else {
-                do {
-                    $dernierNumero++;
-                    $matricule = $prefixeMatricule . str_pad($dernierNumero, 3, '0', STR_PAD_LEFT);
-                } while (Eleve::withTrashed()->where('matricule', $matricule)->exists());
+            // Les lignes viennent du navigateur : type et montant sont reverifies ici.
+            $type = ($donnee['type_inscription'] ?? null) === 'reinscription' ? 'reinscription' : 'inscription';
+            $montantFrais = isset($donnee['frais_inscription']) && is_numeric($donnee['frais_inscription'])
+                ? (float) $donnee['frais_inscription']
+                : 0.0;
+
+            try {
+                $resultat = DB::transaction(function () use (
+                    $donnee, $classe, $etablissementId, $type, $montantFrais, $inscriptionService, $fraisService,
+                    $request, $prefixeMatricule, &$dernierNumero
+                ) {
+                    if (!empty($donnee['eleve_existant_id'])) {
+                        // Ancien eleve deja connu de LAKOLI : reinscription dans la nouvelle classe.
+                        $eleve = Eleve::where('etablissement_id', $etablissementId)->find($donnee['eleve_existant_id']);
+                        if (!$eleve) {
+                            throw new \RuntimeException('Élève existant introuvable.');
+                        }
+                        if ($this->estInscritSurSession($eleve->id, $classe->session_scolaire_id)) {
+                            throw new \RuntimeException('Élève déjà inscrit sur cette session.');
+                        }
+                        $aUnHistorique = Inscription::where('eleve_id', $eleve->id)->exists();
+                        $inscription = $aUnHistorique
+                            ? $inscriptionService->reinscrire($eleve, $classe)
+                            : $inscriptionService->inscrire($eleve, $classe, null, 'reinscription');
+                        $nouveau = false;
+                    } else {
+                        if (!empty($donnee['matricule'])) {
+                            $matricule = $donnee['matricule'];
+                        } else {
+                            do {
+                                $dernierNumero++;
+                                $matricule = $prefixeMatricule . str_pad($dernierNumero, 3, '0', STR_PAD_LEFT);
+                            } while (Eleve::withTrashed()->where('matricule', $matricule)->exists());
+                        }
+
+                        $eleve = Eleve::create([
+                            'etablissement_id' => $etablissementId,
+                            'nom' => $donnee['nom'],
+                            'prenom' => $donnee['prenom'],
+                            'matricule' => $matricule,
+                            'date_naissance' => $donnee['date_naissance'],
+                            'lieu_naissance' => $donnee['lieu_naissance'] ?? null,
+                            'statut_dossier' => 'photo_manquante',
+                        ]);
+
+                        // Type lu dans le fichier : un ancien eleve de l'ecole pilote, sans historique
+                        // LAKOLI, est enregistre directement en reinscription.
+                        $inscription = $inscriptionService->inscrire(
+                            $eleve, $classe, null, $type === 'reinscription' ? 'reinscription' : 'nouvelle'
+                        );
+
+                        foreach ([['pere', 'pere'], ['mere', 'mere'], ['tuteur', 'tuteur']] as [$prefixe, $lien]) {
+                            if (!empty($donnee[$prefixe . '_nom'])) {
+                                $eleve->filiations()->create([
+                                    'type_lien' => $lien,
+                                    'nom_complet' => $donnee[$prefixe . '_nom'],
+                                    'telephone' => $donnee[$prefixe . '_telephone'] ?? null,
+                                    'lien_avec_eleve' => $prefixe === 'tuteur' ? ($donnee['tuteur_lien'] ?? null) : null,
+                                ]);
+                            }
+                        }
+                        $nouveau = true;
+                    }
+
+                    // Frais d'inscription / reinscription deja encaisses par l'ecole.
+                    $fraisOk = false;
+                    if ($montantFrais > 0) {
+                        $typeFrais = $fraisService->typeFraisInscription($etablissementId, $type);
+                        $grille = $typeFrais ? $fraisService->grilleInscription($inscription, $typeFrais) : null;
+                        if (!$grille) {
+                            throw new \RuntimeException('Aucune grille de frais de ' . ($type === 'reinscription' ? 'réinscription' : 'inscription') . " pour la classe {$classe->nom}.");
+                        }
+                        if ($montantFrais > (float) $grille->montant) {
+                            throw new \RuntimeException('Frais payés supérieurs aux frais de la classe (' . (int) $grille->montant . ' GNF).');
+                        }
+                        $fraisOk = $fraisService->encaisserFraisInscription(
+                            $inscription, $typeFrais, $grille, $montantFrais, 'especes', $request->user()->id
+                        ) !== null;
+                    }
+
+                    return ['nouveau' => $nouveau, 'frais' => $fraisOk];
+                });
+            } catch (\Throwable $e) {
+                $erreurs[] = [
+                    'nom' => trim(($donnee['nom'] ?? '') . ' ' . ($donnee['prenom'] ?? '')),
+                    'message' => $e->getMessage(),
+                ];
+                continue;
             }
 
-            DB::transaction(function () use ($donnee, $classe, $etablissementId, $matricule) {
-                $eleve = Eleve::create([
-                    'etablissement_id' => $etablissementId,
-                    'nom' => $donnee['nom'],
-                    'prenom' => $donnee['prenom'],
-                    'matricule' => $matricule,
-                    'date_naissance' => $donnee['date_naissance'],
-                    'lieu_naissance' => $donnee['lieu_naissance'] ?? null,
-                    'statut_dossier' => 'photo_manquante',
-                ]);
-
-                (new InscriptionService())->inscrire($eleve, $classe);
-
-                if (!empty($donnee['pere_nom'])) {
-                    $eleve->filiations()->create([
-                        'type_lien' => 'pere',
-                        'nom_complet' => $donnee['pere_nom'],
-                        'telephone' => $donnee['pere_telephone'] ?? null,
-                    ]);
-                }
-                if (!empty($donnee['mere_nom'])) {
-                    $eleve->filiations()->create([
-                        'type_lien' => 'mere',
-                        'nom_complet' => $donnee['mere_nom'],
-                        'telephone' => $donnee['mere_telephone'] ?? null,
-                    ]);
-                }
-                if (!empty($donnee['tuteur_nom'])) {
-                    $eleve->filiations()->create([
-                        'type_lien' => 'tuteur',
-                        'nom_complet' => $donnee['tuteur_nom'],
-                        'telephone' => $donnee['tuteur_telephone'] ?? null,
-                        'lien_avec_eleve' => $donnee['tuteur_lien'] ?? null,
-                    ]);
-                }
-            });
-
-            $importes++;
+            $resultat['nouveau'] ? $importes++ : $reinscrits++;
+            if ($resultat['frais']) {
+                $fraisEnregistres++;
+            }
         }
 
-        return response()->json(['importes' => $importes]);
+        return response()->json([
+            'importes' => $importes,
+            'reinscrits' => $reinscrits,
+            'frais_enregistres' => $fraisEnregistres,
+            'erreurs' => $erreurs,
+        ]);
     }
 }
-
-

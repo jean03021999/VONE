@@ -93,6 +93,39 @@ class Eleve extends Model
      *               (ex : Trimestre 1 paye d'avance, Trimestres 2 et 3 non payes)
      * - a_echoir  : aucun paiement
      */
+    /**
+     * Detail du retard de paiement (echeances de scolarite dont la date limite est depassee et qui
+     * ne sont pas soldees) : premiere echeance depassee et montant du. null si aucun retard.
+     * Sans requete supplementaire quand scopeAvecStatutPaiement() a ete utilise.
+     */
+    public function detailRetard(): ?array
+    {
+        $echeances = $this->relationLoaded('fraisScolarite')
+            ? $this->fraisScolarite->flatMap->echeances
+            : EcheanceEleve::whereIn('frais_eleve_id', $this->fraisScolarite()->pluck('frais_eleves.id'))
+                ->withSum('paiements', 'montant')
+                ->get();
+
+        $aujourdhui = today()->toDateString();
+        $depassees = $echeances
+            ->filter(fn ($e) => substr((string) $e->date_limite, 0, 10) < $aujourdhui && (float) $e->montant - $e->montant_paye > 0)
+            ->sortBy(fn ($e) => (string) $e->date_limite)
+            ->values();
+
+        if ($depassees->isEmpty()) {
+            return null;
+        }
+
+        $premiere = $depassees->first();
+
+        return [
+            'echeance' => $premiere->libelle,
+            'date_limite' => substr((string) $premiere->date_limite, 0, 10),
+            'nombre_echeances' => $depassees->count(),
+            'montant_du' => $depassees->sum(fn ($e) => (float) $e->montant - $e->montant_paye),
+        ];
+    }
+
     public function getStatutPaiementAttribute()
     {
         // Seuls les frais de scolarite comptent : les frais d'inscription / reinscription sont

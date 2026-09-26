@@ -47,6 +47,8 @@ class EleveController extends Controller
             ]);
 
         $eleves = $eleves->map(function ($eleve) use ($inscriptionReglee) {
+            $statutPaiement = $eleve->statut_paiement;
+
             return [
                 'id' => $eleve->id,
                 'nom' => $eleve->nom,
@@ -55,6 +57,7 @@ class EleveController extends Controller
                 'date_naissance' => $eleve->date_naissance,
                 'lieu_naissance' => $eleve->lieu_naissance,
                 'classe' => $eleve->inscriptionActive?->classe?->nom,
+                'classe_id' => $eleve->inscriptionActive?->classe_id,
                 'inscription_active' => $eleve->inscriptionActive ? [
                     'type_inscription' => $eleve->inscriptionActive->type_inscription,
                     'statut' => $eleve->inscriptionActive->statut,
@@ -64,9 +67,11 @@ class EleveController extends Controller
                 ] : null,
                 'photo_path' => $eleve->photo_path,
                 'statut_dossier' => $eleve->statut_dossier,
-                'statut_paiement' => $eleve->statut_paiement,
+                'statut_paiement' => $statutPaiement,
                 // 'inscription' | 'reinscription' | null (frais d'inscription pas encore enregistres)
                 'inscription_reglee' => $inscriptionReglee[$eleve->id] ?? null,
+                // { echeance, date_limite, nombre_echeances, montant_du } pour un eleve en retard
+                'retard' => $statutPaiement === 'en_retard' ? $eleve->detailRetard() : null,
             ];
         });
 
@@ -75,6 +80,12 @@ class EleveController extends Controller
         $enRetard = $eleves->where('statut_paiement', 'en_retard')->count();
         $partiel = $eleves->where('statut_paiement', 'partiel')->count();
         $aEchoir = $eleves->where('statut_paiement', 'a_echoir')->count();
+
+        // Filtre facultatif par statut (ex. ?statut_paiement=en_retard) : les stats restent calculees
+        // sur l'ensemble des eleves.
+        if ($request->filled('statut_paiement')) {
+            $eleves = $eleves->where('statut_paiement', $request->statut_paiement)->values();
+        }
 
         return response()->json([
             'eleves' => $eleves,

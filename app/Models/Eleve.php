@@ -87,11 +87,7 @@ class Eleve extends Model
      */
     public function detailRetard(): ?array
     {
-        $echeances = $this->relationLoaded('fraisScolarite')
-            ? $this->fraisScolarite->flatMap->echeances
-            : EcheanceEleve::whereIn('frais_eleve_id', $this->fraisScolarite()->pluck('frais_eleves.id'))
-                ->withSum('paiements', 'montant')
-                ->get();
+        [$echeances, $sessionId] = $this->echeancesScolarite();
 
         $aujourdhui = today()->toDateString();
         $depassees = $echeances
@@ -100,12 +96,27 @@ class Eleve extends Model
             ->values();
 
         if ($depassees->isEmpty()) {
-            return null;
+            // Regle du 10 : aucun paiement de scolarite apres le 10 du premier mois de la session.
+            $limite = self::dateLimiteSansPaiement($sessionId);
+            $aucunPaiement = $echeances->isNotEmpty() && $echeances->every(fn ($e) => $e->montant_paye <= 0);
+            if (! $limite || ! $aucunPaiement || $aujourdhui <= $limite) {
+                return null;
+            }
+            $premiere = $echeances->sortBy(fn ($e) => (string) $e->date_limite)->first();
+
+            return [
+                'motif' => 'aucun_paiement',
+                'echeance' => $premiere->libelle,
+                'date_limite' => $limite,
+                'nombre_echeances' => 0,
+                'montant_du' => (float) $premiere->montant,
+            ];
         }
 
         $premiere = $depassees->first();
 
         return [
+            'motif' => 'echeance_depassee',
             'echeance' => $premiere->libelle,
             'date_limite' => substr((string) $premiere->date_limite, 0, 10),
             'nombre_echeances' => $depassees->count(),
@@ -117,7 +128,8 @@ class Eleve extends Model
      * Statut global de paiement de l'eleve, calcule sur les seules echeances de SCOLARITE
      * (types de frais dont le nom commence par "scolarit"), dans l'ordre de priorite :
      * - en_retard : au moins une echeance avec reste a payer et date limite depassee
-     *               (meme si un paiement partiel a deja eu lieu)
+     *               (meme si un paiement partiel a deja eu lieu), ou AUCUN paiement apres le 10
+     *               du premier mois de la session (regle du 10, voir dateLimiteSansPaiement)
      * - partiel   : paiement partiel sur une echeance due (date limite <= aujourd'hui ;
      *               les echeances depassees sont deja en retard, reste donc celle du jour)
      * - a_jour    : toutes les echeances sont soldees, ou au moins une echeance est due
@@ -128,17 +140,60 @@ class Eleve extends Model
      */
     public function getStatutPaiementAttribute()
     {
-        // Seuls les frais de scolarite comptent : les frais d'inscription / reinscription sont
-        // payes une fois et ne doivent pas influencer ce statut.
+        [$echeances, $sessionId] = $this->echeancesScolarite();
+
+        return self::calculerStatutPaiement($echeances, self::dateLimiteSansPaiement($sessionId));
+    }
+
+    /**
+     * Echeances de scolarite de l'eleve (avec la somme de leurs paiements) et session concernee.
+     * Sans requete si scopeAvecStatutPaiement() a ete utilise. Seuls les frais de scolarite
+     * comptent : les frais d'inscription / reinscription sont payes une fois et n'influencent pas
+     * le statut.
+     */
+    private function echeancesScolarite(): array
+    {
         if ($this->relationLoaded('fraisScolarite')) {
-            $echeances = $this->fraisScolarite->flatMap->echeances;
-        } else {
-            // withSum = somme de tous les paiements de chaque echeance, en une seule requete.
-            $echeances = EcheanceEleve::whereIn('frais_eleve_id', $this->fraisScolarite()->pluck('frais_eleves.id'))
-                ->withSum('paiements', 'montant')
-                ->get();
+            return [$this->fraisScolarite->flatMap->echeances, $this->fraisScolarite->first()?->session_scolaire_id];
         }
 
+        $frais = $this->fraisScolarite()->get(['frais_eleves.id', 'frais_eleves.session_scolaire_id']);
+        // withSum = somme de tous les paiements de chaque echeance, en une seule requete.
+        $echeances = EcheanceEleve::whereIn('frais_eleve_id', $frais->pluck('id'))
+            ->withSum('paiements', 'montant')
+            ->get();
+
+        return [$echeances, $frais->first()?->session_scolaire_id];
+    }
+
+    /**
+     * Regle du 10 : un eleve qui n'a encore RIEN paye sur sa scolarite est en retard a partir du 11
+     * du premier mois de la session (ex. session debutant le 01/10 : en retard des le 11/10), et le
+     * reste jusqu'a son premier paiement. Retourne cette date limite (Y-m-d), memorisee par session
+     * pour ne pas refaire de requete eleve par eleve.
+     */
+    public static function dateLimiteSansPaiement(?int $sessionId): ?string
+    {
+        static $parSession = [];
+        if (! $sessionId) {
+            return null;
+        }
+        if (! array_key_exists($sessionId, $parSession)) {
+            $debut = SessionScolaire::whereKey($sessionId)->value('date_debut');
+            $parSession[$sessionId] = $debut
+                ? \Carbon\Carbon::parse($debut)->startOfMonth()->addDays(9)->toDateString()
+                : null;
+        }
+        return $parSession[$sessionId];
+    }
+
+    /**
+     * Statut de paiement a partir des echeances de scolarite (montant_paye disponible), dans l'ordre
+     * decrit plus haut, plus la regle du 10 ($dateLimiteSansPaiement) : aucun paiement apres cette
+     * date = en_retard. Partage par l'accesseur et les statistiques par classe.
+     */
+    public static function calculerStatutPaiement($echeances, ?string $dateLimiteSansPaiement): string
+    {
         if ($echeances->isEmpty()) {
             return 'aucun_frais';
         }
@@ -151,6 +206,11 @@ class Eleve extends Model
         ]);
 
         if ($lignes->contains(fn ($l) => $l['reste'] > 0 && $l['limite'] < $aujourdhui)) {
+            return 'en_retard';
+        }
+
+        if ($dateLimiteSansPaiement && $aujourdhui > $dateLimiteSansPaiement
+            && $lignes->every(fn ($l) => $l['paye'] <= 0)) {
             return 'en_retard';
         }
 

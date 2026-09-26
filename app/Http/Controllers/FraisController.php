@@ -425,7 +425,11 @@ class FraisController extends Controller
                 $montantTotal += $echeances->sum('montant');
                 $montantEncaisse += $echeances->sum('montant_paye');
 
-                $aDuRetard = $echeances->contains(fn($e) => $e->statut === 'en_retard');
+                // Meme calcul que le statut de l'eleve (regle du 10 comprise).
+                $aDuRetard = \App\Models\Eleve::calculerStatutPaiement(
+                    $echeances,
+                    \App\Models\Eleve::dateLimiteSansPaiement($eleve->fraisEleves->first()?->session_scolaire_id)
+                ) === 'en_retard';
                 $estSolde = $echeances->every(fn($e) => $e->solde <= 0);
 
                 if ($aDuRetard) {

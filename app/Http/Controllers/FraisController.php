@@ -310,15 +310,23 @@ class FraisController extends Controller
         $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
-            ->with('eleve.inscriptionActive.classe')
+            ->with([
+                'eleve.inscriptionActive.classe',
+                'echeanceEleve' => fn ($q) => $q->withSum('paiements', 'montant'),
+                'echeanceEleve.fraisEleve.typeFrais',
+            ])
             ->orderByDesc('date_paiement')
             ->orderByDesc('id')
             ->limit(5)
             ->get()
             ->map(fn($p) => [
                 'id' => $p->id,
+                'reference' => $p->reference,
                 'montant' => $p->montant,
                 'periode' => $p->libelle,
+                'type_frais' => $p->echeanceEleve?->fraisEleve?->typeFrais?->nom,
+                // Etat actuel de l'echeance reglee par ce paiement : soldee ou encore partielle.
+                'statut' => $p->echeanceEleve && $p->echeanceEleve->solde > 0 ? 'partiel' : 'paye',
                 'date_paiement' => $p->date_paiement,
                 'heure' => $p->created_at?->format('H:i'),
                 'eleve' => $p->eleve ? [

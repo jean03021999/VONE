@@ -25,10 +25,17 @@ Route::get('/user', function (Request $request) {
         ->where('roles.etablissement_id', $user->etablissement_id)
         ->first();
 
+    // Etablissement et session active : affiches dans l'en-tete de l'application.
+    $session = \App\Models\SessionScolaire::where('etablissement_id', $user->etablissement_id)
+        ->where('est_active', true)
+        ->first();
+
     return response()->json([
         'user' => $user,
         'role' => $role ? strtoupper($role->nom) : null,
         'permissions' => $role ? $role->permissions()->pluck('nom') : [],
+        'etablissement' => $user->etablissement?->only(['nom', 'ville']),
+        'session' => $session?->libelle,
     ]);
 })->middleware('auth:sanctum');
 

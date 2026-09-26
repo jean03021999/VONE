@@ -303,10 +303,21 @@ class FraisController extends Controller
         return response()->json($paiements);
     }
 
+    /**
+     * Derniers versements : les paiements d'un meme passage en caisse sont regroupes en UN versement
+     * (inscription/reinscription + scolarite, ou surplus reparti sur plusieurs tranches), avec le
+     * total et le detail par frais. Meme passage = meme eleve et meme reference, ou enregistres a
+     * moins de VERSEMENT_ECART_SECONDES d'intervalle (couvre aussi les paiements deja enregistres
+     * par le flux inscription + scolarite, qui ont deux references distinctes).
+     */
+    private const VERSEMENT_ECART_SECONDES = 60;
+
     public function paiementsRecent(Request $request)
     {
         $etablissementId = $request->user()->etablissement_id;
+        $nombreVersements = 5;
 
+        // Assez de paiements pour reconstituer 5 versements (un versement en compte rarement plus de 4).
         $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
@@ -317,26 +328,73 @@ class FraisController extends Controller
             ])
             ->orderByDesc('date_paiement')
             ->orderByDesc('id')
-            ->limit(5)
-            ->get()
-            ->map(fn($p) => [
-                'id' => $p->id,
-                'reference' => $p->reference,
-                'montant' => $p->montant,
-                'periode' => $p->libelle,
-                'type_frais' => $p->echeanceEleve?->fraisEleve?->typeFrais?->nom,
-                // Etat actuel de l'echeance reglee par ce paiement : soldee ou encore partielle.
-                'statut' => $p->echeanceEleve && $p->echeanceEleve->solde > 0 ? 'partiel' : 'paye',
-                'date_paiement' => $p->date_paiement,
-                'heure' => $p->created_at?->format('H:i'),
-                'eleve' => $p->eleve ? [
-                    'id' => $p->eleve->id,
-                    'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",
-                    'classe' => $p->eleve->inscriptionActive?->classe?->nom,
-                ] : null,
-            ]);
+            ->limit($nombreVersements * 10)
+            ->get();
 
-        return response()->json($paiements);
+        $groupes = [];
+        foreach ($paiements as $p) {
+            $courant = count($groupes) ? $groupes[count($groupes) - 1] : null;
+            $dernier = $courant ? $courant[count($courant) - 1] : null;
+            $memePassage = $dernier
+                && $dernier->eleve_id === $p->eleve_id
+                && (
+                    ($p->reference && $p->reference === $dernier->reference)
+                    || ($p->created_at && $dernier->created_at
+                        && abs($p->created_at->diffInSeconds($dernier->created_at)) <= self::VERSEMENT_ECART_SECONDES)
+                );
+            if ($memePassage) {
+                $groupes[count($groupes) - 1][] = $p;
+            } else {
+                if (count($groupes) === $nombreVersements) {
+                    break;
+                }
+                $groupes[] = [$p];
+            }
+        }
+
+        $versements = collect($groupes)->map(function ($groupe) {
+            $groupe = collect($groupe);
+            // Inscription / reinscription d'abord, puis la scolarite par tranche.
+            $details = $groupe
+                ->sortBy(fn ($p) => [$this->estPaiementInscription($p) ? 0 : 1, $p->id])
+                ->values()
+                ->map(fn ($p) => [
+                    'id' => $p->id,
+                    'type_frais' => $p->echeanceEleve?->fraisEleve?->typeFrais?->nom,
+                    'libelle' => $p->libelle,
+                    'montant' => $p->montant,
+                    // Etat actuel de l'echeance reglee : soldee ou encore partielle.
+                    'statut' => $p->echeanceEleve && $p->echeanceEleve->solde > 0 ? 'partiel' : 'paye',
+                ]);
+            $plusRecent = $groupe->sortByDesc('id')->first();
+            $eleve = $plusRecent->eleve;
+
+            return [
+                'id' => $plusRecent->id,
+                'reference' => $groupe->pluck('reference')->filter()->first(),
+                'montant' => $groupe->sum(fn ($p) => (float) $p->montant),
+                'type_frais' => $details->pluck('type_frais')->filter()->unique()->implode(' + '),
+                'periode' => $details->pluck('libelle')->filter()->implode(', '),
+                'statut' => $details->contains('statut', 'partiel') ? 'partiel' : 'paye',
+                'details' => $details,
+                'date_paiement' => $plusRecent->date_paiement,
+                'heure' => $plusRecent->created_at?->format('H:i'),
+                'eleve' => $eleve ? [
+                    'id' => $eleve->id,
+                    'nom_complet' => "{$eleve->nom} {$eleve->prenom}",
+                    'classe' => $eleve->inscriptionActive?->classe?->nom,
+                ] : null,
+            ];
+        })->values();
+
+        return response()->json($versements);
+    }
+
+    private function estPaiementInscription(Paiement $paiement): bool
+    {
+        $nom = \Illuminate\Support\Str::of($paiement->echeanceEleve?->fraisEleve?->typeFrais?->nom ?? '')->ascii()->lower()->toString();
+
+        return in_array($nom, ['inscription', 'reinscription'], true);
     }
 
     public function statsParClasse(Request $request)

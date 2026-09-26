@@ -81,19 +81,6 @@ class Eleve extends Model
     }
 
     /**
-     * Statut global de paiement de l'eleve, calcule sur les seules echeances de SCOLARITE
-     * (types de frais dont le nom commence par "scolarit"), dans l'ordre de priorite :
-     * - en_retard : au moins une echeance avec reste a payer et date limite depassee
-     *               (meme si un paiement partiel a deja eu lieu)
-     * - partiel   : paiement partiel sur une echeance due (date limite <= aujourd'hui ;
-     *               les echeances depassees sont deja en retard, reste donc celle du jour)
-     * - a_jour    : toutes les echeances sont soldees, ou au moins une echeance est due
-     *               et toutes les echeances dues sont soldees
-     * - partiel   : (suite) sinon, des qu'un paiement existe, meme sur une echeance pas encore due
-     *               (ex : Trimestre 1 paye d'avance, Trimestres 2 et 3 non payes)
-     * - a_echoir  : aucun paiement
-     */
-    /**
      * Detail du retard de paiement (echeances de scolarite dont la date limite est depassee et qui
      * ne sont pas soldees) : premiere echeance depassee et montant du. null si aucun retard.
      * Sans requete supplementaire quand scopeAvecStatutPaiement() a ete utilise.
@@ -126,6 +113,19 @@ class Eleve extends Model
         ];
     }
 
+    /**
+     * Statut global de paiement de l'eleve, calcule sur les seules echeances de SCOLARITE
+     * (types de frais dont le nom commence par "scolarit"), dans l'ordre de priorite :
+     * - en_retard : au moins une echeance avec reste a payer et date limite depassee
+     *               (meme si un paiement partiel a deja eu lieu)
+     * - partiel   : paiement partiel sur une echeance due (date limite <= aujourd'hui ;
+     *               les echeances depassees sont deja en retard, reste donc celle du jour)
+     * - a_jour    : toutes les echeances sont soldees, ou au moins une echeance est due
+     *               et toutes les echeances dues sont soldees
+     * - partiel   : (suite) sinon, des qu'un paiement existe, meme sur une echeance pas encore due
+     *               (ex : Trimestre 1 paye d'avance, Trimestres 2 et 3 non payes)
+     * - a_echoir  : aucun paiement
+     */
     public function getStatutPaiementAttribute()
     {
         // Seuls les frais de scolarite comptent : les frais d'inscription / reinscription sont

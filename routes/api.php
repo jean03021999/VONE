@@ -34,7 +34,8 @@ Route::get('/user', function (Request $request) {
         'user' => $user,
         'role' => $role ? strtoupper($role->nom) : null,
         'permissions' => $role ? $role->permissions()->pluck('nom') : [],
-        'etablissement' => $user->etablissement?->only(['nom', 'ville']),
+        // Coordonnees aussi : en-tete des documents imprimes (recu de paiement, releve).
+        'etablissement' => $user->etablissement?->only(['nom', 'ville', 'adresse', 'telephone', 'email']),
         'session' => $session?->libelle,
     ]);
 })->middleware('auth:sanctum');

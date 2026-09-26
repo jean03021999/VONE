@@ -283,9 +283,21 @@ class FraisController extends Controller
             ->with(['eleve.inscriptionActive.classe', 'echeanceEleve.fraisEleve.typeFrais'])
             ->orderByDesc('date_paiement')
             ->orderByDesc('id')
-            ->get()
-            ->map(fn($p) => [
+            ->get();
+
+        // Identifiant du versement (passage en caisse) de chaque paiement : le plus recent du groupe.
+        $versementDe = [];
+        foreach ($this->regrouperEnVersements($paiements) as $groupe) {
+            $idVersement = max(array_map(fn ($p) => $p->id, $groupe));
+            foreach ($groupe as $p) {
+                $versementDe[$p->id] = $idVersement;
+            }
+        }
+
+        $paiements = $paiements->map(fn($p) => [
                 'id' => $p->id,
+                'versement_id' => $versementDe[$p->id],
+                'reference' => $p->reference,
                 'montant' => $p->montant,
                 'moyen_paiement' => $p->moyen_paiement,
                 'date_paiement' => $p->date_paiement,
@@ -312,6 +324,37 @@ class FraisController extends Controller
      */
     private const VERSEMENT_ECART_SECONDES = 60;
 
+    /**
+     * Decoupe une liste de paiements (deja triee du plus recent au plus ancien) en versements :
+     * paiements consecutifs du meme eleve, avec la meme reference ou enregistres a moins de
+     * VERSEMENT_ECART_SECONDES d'intervalle. S'arrete apres $limite versements si fourni.
+     */
+    private function regrouperEnVersements(iterable $paiements, ?int $limite = null): array
+    {
+        $groupes = [];
+        foreach ($paiements as $p) {
+            $courant = count($groupes) ? $groupes[count($groupes) - 1] : null;
+            $dernier = $courant ? $courant[count($courant) - 1] : null;
+            $memePassage = $dernier
+                && $dernier->eleve_id === $p->eleve_id
+                && (
+                    ($p->reference && $p->reference === $dernier->reference)
+                    || ($p->created_at && $dernier->created_at
+                        && abs($p->created_at->diffInSeconds($dernier->created_at)) <= self::VERSEMENT_ECART_SECONDES)
+                );
+            if ($memePassage) {
+                $groupes[count($groupes) - 1][] = $p;
+                continue;
+            }
+            if ($limite !== null && count($groupes) === $limite) {
+                break;
+            }
+            $groupes[] = [$p];
+        }
+
+        return $groupes;
+    }
+
     public function paiementsRecent(Request $request)
     {
         $etablissementId = $request->user()->etablissement_id;
@@ -331,26 +374,7 @@ class FraisController extends Controller
             ->limit($nombreVersements * 10)
             ->get();
 
-        $groupes = [];
-        foreach ($paiements as $p) {
-            $courant = count($groupes) ? $groupes[count($groupes) - 1] : null;
-            $dernier = $courant ? $courant[count($courant) - 1] : null;
-            $memePassage = $dernier
-                && $dernier->eleve_id === $p->eleve_id
-                && (
-                    ($p->reference && $p->reference === $dernier->reference)
-                    || ($p->created_at && $dernier->created_at
-                        && abs($p->created_at->diffInSeconds($dernier->created_at)) <= self::VERSEMENT_ECART_SECONDES)
-                );
-            if ($memePassage) {
-                $groupes[count($groupes) - 1][] = $p;
-            } else {
-                if (count($groupes) === $nombreVersements) {
-                    break;
-                }
-                $groupes[] = [$p];
-            }
-        }
+        $groupes = $this->regrouperEnVersements($paiements, $nombreVersements);
 
         $versements = collect($groupes)->map(function ($groupe) {
             $groupe = collect($groupe);

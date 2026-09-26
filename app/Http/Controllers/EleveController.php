@@ -31,7 +31,22 @@ class EleveController extends Controller
             });
         }
 
-        $eleves = $query->get()->map(function ($eleve) {
+        $eleves = $query->get();
+
+        // Eleve reellement inscrit = frais d'inscription ou de reinscription enregistres sur la
+        // session active (l'inscription "active" seule peut venir d'un import, sans aucun frais).
+        $inscriptionReglee = \App\Models\FraisEleve::whereIn('eleve_id', $eleves->pluck('id'))
+            ->whereIn('session_scolaire_id', \App\Models\SessionScolaire::where('etablissement_id', $etablissementId)
+                ->where('est_active', true)
+                ->pluck('id'))
+            ->whereHas('typeFrais', fn ($q) => $q->where('nom', 'ILIKE', 'inscription')->orWhere('nom', 'ILIKE', 'r_inscription'))
+            ->with('typeFrais:id,nom')
+            ->get()
+            ->mapWithKeys(fn ($f) => [
+                $f->eleve_id => str_starts_with(strtolower(\Illuminate\Support\Str::ascii($f->typeFrais->nom)), 're') ? 'reinscription' : 'inscription',
+            ]);
+
+        $eleves = $eleves->map(function ($eleve) use ($inscriptionReglee) {
             return [
                 'id' => $eleve->id,
                 'nom' => $eleve->nom,
@@ -50,6 +65,8 @@ class EleveController extends Controller
                 'photo_path' => $eleve->photo_path,
                 'statut_dossier' => $eleve->statut_dossier,
                 'statut_paiement' => $eleve->statut_paiement,
+                // 'inscription' | 'reinscription' | null (frais d'inscription pas encore enregistres)
+                'inscription_reglee' => $inscriptionReglee[$eleve->id] ?? null,
             ];
         });
 
@@ -68,6 +85,7 @@ class EleveController extends Controller
                 'en_retard' => $enRetard,
                 'partiel' => $partiel,
                 'a_echoir' => $aEchoir,
+                'inscrits' => $eleves->whereNotNull('inscription_reglee')->count(),
             ],
         ]);
     }

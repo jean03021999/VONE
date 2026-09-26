@@ -18,6 +18,8 @@ class AuthController extends Controller
         $request->validate([
             'identifiant' => 'required|string',
             'mot_de_passe' => 'required|string',
+            // Profil choisi sur l'ecran de connexion (facultatif) : doit correspondre au role du compte.
+            'profil' => 'nullable|string|in:fondateur,directeur,proviseur,censeur,comptable',
         ]);
 
         $user = User::where('email', $request->identifiant)
@@ -34,6 +36,18 @@ class AuthController extends Controller
             throw ValidationException::withMessages([
                 'identifiant' => ['Ce compte est suspendu.'],
             ]);
+        }
+
+        if ($request->filled('profil')) {
+            $role = $this->roleActuel($user);
+            if (! $role || strtolower($role) !== $request->profil) {
+                $profil = ucfirst($request->profil);
+                throw ValidationException::withMessages([
+                    'profil' => [$role
+                        ? "Ce compte n'a pas le profil {$profil} : choisissez le profil « " . ucfirst(strtolower($role)) . ' ».'
+                        : "Ce compte n'a pas le profil {$profil}."],
+                ]);
+            }
         }
 
         // MODE DEVELOPPEMENT : OTP desactive en local

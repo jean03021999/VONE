@@ -106,8 +106,18 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $eleve = Eleve::where('etablissement_id', $etablissementId)
-            ->with(['etablissement:id,nom', 'inscriptionActive.classe', 'inscriptionActive.sessionScolaire', 'filiations', 'fraisEleves.echeances.paiements'])
+            ->with([
+                'etablissement:id,nom,ville,adresse,telephone,email',
+                'inscriptionActive.classe',
+                'inscriptionActive.sessionScolaire',
+                'filiations',
+                'fraisEleves.typeFrais:id,nom',
+                'fraisEleves.echeances.paiements',
+            ])
             ->findOrFail($id);
+
+        // Statut global (meme calcul que la liste) pour la fiche et le releve imprime.
+        $eleve->append('statut_paiement');
 
         return response()->json($eleve);
     }

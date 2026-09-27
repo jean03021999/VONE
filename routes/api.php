@@ -105,6 +105,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/emploi-du-temps/{classeId}', [EmploiDuTempsController::class, 'index'])->middleware('permission:emploi_du_temps.voir');
+    // Export Excel : simple consultation (le Comptable peut telecharger sans pouvoir modifier).
+    Route::get('/emploi-du-temps/{classeId}/export', [EmploiDuTempsController::class, 'exporter'])->middleware('permission:emploi_du_temps.voir');
     Route::post('/emploi-du-temps', [EmploiDuTempsController::class, 'store'])->middleware('permission:emploi_du_temps.gerer');
     Route::delete('/emploi-du-temps/{id}', [EmploiDuTempsController::class, 'destroy'])->middleware('permission:emploi_du_temps.gerer');
 });

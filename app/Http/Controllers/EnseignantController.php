@@ -13,7 +13,7 @@ class EnseignantController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $query = Enseignant::where('etablissement_id', $etablissementId)
-            ->with(['contratActif', 'affectations.matiere']);
+            ->with(['contratActif', 'affectations.matiere', 'affectations.classe']);
 
         if ($request->filled('recherche')) {
             $recherche = $request->recherche;
@@ -24,15 +24,34 @@ class EnseignantController extends Controller
             });
         }
 
-        $enseignants = $query->get()->map(function ($e) {
+        $enseignants = $query->orderBy('nom')->orderBy('prenom')->get()->map(function ($e) {
+            $contrat = $e->contratActif;
+
             return [
                 'id' => $e->id,
                 'nom' => $e->nom,
                 'prenom' => $e->prenom,
                 'matricule' => $e->matricule,
+                'telephone' => $e->telephone,
+                'email' => $e->email,
+                'diplome' => $e->diplome,
                 'matieres' => $e->affectations->pluck('matiere.nom')->unique()->filter()->values(),
-                'type_contrat' => $e->contratActif?->type,
-                'statut_contrat' => $e->contratActif?->statut ?? 'aucun',
+                // Classes enseignees (une fois chacune), avec indicateur de classe d'examen.
+                'classes' => $e->affectations
+                    ->filter(fn ($a) => $a->classe)
+                    ->groupBy('classe_id')
+                    ->map(fn ($groupe) => [
+                        'nom' => $groupe->first()->classe->nom,
+                        'examen' => (bool) $groupe->contains('est_classe_examen', true),
+                    ])
+                    ->values(),
+                'volume_horaire' => (float) $e->affectations->sum('volume_horaire_hebdomadaire'),
+                'type_contrat' => $contrat?->type,
+                'statut_contrat' => $contrat?->statut ?? 'aucun',
+                'date_debut_contrat' => $contrat?->date_debut,
+                'date_fin_contrat' => $contrat?->date_fin,
+                'salaire_base' => $contrat ? (float) $contrat->salaire_base : null,
+                'a_un_compte' => $e->user_id !== null,
             ];
         });
 
@@ -41,6 +60,9 @@ class EnseignantController extends Controller
             'stats' => [
                 'total' => $enseignants->count(),
                 'actifs' => $enseignants->where('statut_contrat', 'actif')->count(),
+                'heures_hebdo' => (float) $enseignants->sum('volume_horaire'),
+                // Somme des salaires de base des contrats actifs (hors heures sup et vacations).
+                'masse_salariale' => (float) $enseignants->where('statut_contrat', 'actif')->sum('salaire_base'),
             ],
         ]);
     }
@@ -50,10 +72,32 @@ class EnseignantController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $enseignant = Enseignant::where('etablissement_id', $etablissementId)
-            ->with(['contrats', 'affectations.classe', 'affectations.matiere'])
+            ->with(['contrats', 'affectations.classe', 'affectations.matiere', 'affectations.creneaux'])
             ->findOrFail($id);
 
-        return response()->json($enseignant);
+        // Statistiques pedagogiques reelles : evaluations creees sur ses affectations et moyenne
+        // des notes (ramenee sur 20 selon le bareme), eleves presents uniquement.
+        $affectationIds = $enseignant->affectations->pluck('id');
+        $evaluations = \App\Models\Evaluation::whereIn('affectation_id', $affectationIds)
+            ->where('statut', '!=', 'annulee')
+            ->get(['id', 'statut', 'bareme']);
+        $moyenne = \App\Models\Note::whereIn('evaluation_id', $evaluations->pluck('id'))
+            ->where('statut_presence', 'present')
+            ->whereNotNull('valeur')
+            ->join('evaluations', 'evaluations.id', '=', 'notes.evaluation_id')
+            ->where('evaluations.bareme', '>', 0)
+            ->selectRaw('AVG(notes.valeur * 20.0 / evaluations.bareme) as moyenne, COUNT(*) as nombre')
+            ->first();
+
+        $donnees = $enseignant->toArray();
+        $donnees['statistiques'] = [
+            'evaluations' => $evaluations->count(),
+            'evaluations_validees' => $evaluations->whereIn('statut', ['valide', 'publie', 'archive'])->count(),
+            'notes' => (int) ($moyenne->nombre ?? 0),
+            'moyenne' => $moyenne && $moyenne->moyenne !== null ? round((float) $moyenne->moyenne, 2) : null,
+        ];
+
+        return response()->json($donnees);
     }
 
     public function store(Request $request)
@@ -68,6 +112,8 @@ class EnseignantController extends Controller
             'type_contrat' => 'required|in:cdi,cdd,vacataire',
             'salaire_base' => 'required|numeric',
             'date_debut_contrat' => 'required|date',
+            'date_fin_contrat' => 'nullable|date|after_or_equal:date_debut_contrat',
+            'taux_horaire_heures_sup' => 'nullable|numeric|min:0',
         ]);
 
         $etablissementId = $request->user()->etablissement_id;
@@ -93,6 +139,7 @@ class EnseignantController extends Controller
             'enseignant_id' => $enseignant->id,
             'type' => $request->type_contrat,
             'date_debut' => $request->date_debut_contrat,
+            'date_fin' => $request->date_fin_contrat,
             'salaire_base' => $request->salaire_base,
             'taux_horaire_heures_sup' => $request->taux_horaire_heures_sup,
             'statut' => 'actif',

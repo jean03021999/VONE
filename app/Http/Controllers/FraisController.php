@@ -36,13 +36,15 @@ class FraisController extends Controller
             ->with(['classe', 'typeFrais', 'echeances'])
             ->get()
             ->map(function ($grille) {
-                $nombreElevesClasse = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))->count();
+                // Eleves vises : ceux de la classe, restreints au public de la grille (nouveaux /
+                // anciens) ; couverts = ceux qui ont deja un frais de ce type sur la session.
+                $eleveIds = $this->elevesViseesParGrille($grille)->pluck('id');
                 $nombreCouverts = FraisEleve::where('type_frais_id', $grille->type_frais_id)
                     ->where('session_scolaire_id', $grille->session_scolaire_id)
-                    ->whereHas('eleve.inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id))
+                    ->whereIn('eleve_id', $eleveIds)
                     ->count();
 
-                $grille->nombre_eleves_classe = $nombreElevesClasse;
+                $grille->nombre_eleves_classe = $eleveIds->count();
                 $grille->nombre_eleves_couverts = $nombreCouverts;
                 return $grille;
             });
@@ -60,19 +62,23 @@ class FraisController extends Controller
             'echeances.*.libelle' => 'required|string',
             'echeances.*.montant' => 'required|numeric',
             'echeances.*.date_limite' => 'required|date',
+            'applicable_a' => 'nullable|in:tous,nouveau,ancien',
+            'actif' => 'nullable|boolean',
         ]);
 
         $etablissementId = $request->user()->etablissement_id;
         $classe = Classe::findOrFail($request->classe_id);
+        $applicableA = $request->input('applicable_a', 'tous');
 
         $grilleExistante = GrilleTarifaire::where('classe_id', $request->classe_id)
             ->where('type_frais_id', $request->type_frais_id)
             ->where('session_scolaire_id', $classe->session_scolaire_id)
+            ->where('applicable_a', $applicableA)
             ->first();
 
         if ($grilleExistante) {
             return response()->json([
-                'message' => 'Une grille tarifaire existe deja pour cette classe et ce type de frais sur cette session scolaire.',
+                'message' => 'Une grille tarifaire existe deja pour cette classe, ce type de frais et ce public sur cette session scolaire.',
             ], 422);
         }
 
@@ -82,6 +88,8 @@ class FraisController extends Controller
             'classe_id' => $request->classe_id,
             'type_frais_id' => $request->type_frais_id,
             'montant' => $request->montant,
+            'applicable_a' => $applicableA,
+            'actif' => $request->boolean('actif', true),
         ]);
 
         foreach ($request->echeances as $ech) {
@@ -100,15 +108,27 @@ class FraisController extends Controller
     private function appliquerGrilleAuxEleves(GrilleTarifaire $grille): int
     {
         $grille->loadMissing('echeances', 'typeFrais');
-        if ($this->estFraisParEleve($grille)) {
+        if ($this->estFraisParEleve($grille) || ! $grille->actif) {
             return 0;
         }
         $crees = 0;
 
         $service = new FraisService();
-        $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))
-            ->with('inscriptionActive')
-            ->get();
+        $eleves = $this->elevesViseesParGrille($grille);
+
+        // Grille "tous" : les eleves dont le public (nouveau / ancien) a sa propre grille active
+        // du meme type la recoivent en priorite (meme regle que FraisService::appliquerGrillesAInscription).
+        if ($grille->applicable_a === 'tous') {
+            $publicsCouverts = GrilleTarifaire::where('classe_id', $grille->classe_id)
+                ->where('type_frais_id', $grille->type_frais_id)
+                ->where('session_scolaire_id', $grille->session_scolaire_id)
+                ->where('actif', true)
+                ->whereIn('applicable_a', ['nouveau', 'ancien'])
+                ->pluck('applicable_a')
+                ->all();
+            $eleves = $eleves->reject(fn ($e) => in_array($this->publicEleve($e), $publicsCouverts, true));
+        }
+
         foreach ($eleves as $eleve) {
             if ($service->creerFraisDepuisGrille($eleve->id, $grille, $eleve->inscriptionActive?->id)) {
                 $crees++;
@@ -116,6 +136,38 @@ class FraisController extends Controller
         }
 
         return $crees;
+    }
+
+    /** 'ancien' pour une reinscription, 'nouveau' sinon (meme regle que FraisService). */
+    private function publicEleve($eleve): string
+    {
+        return $eleve->inscriptionActive?->type_inscription === 'reinscription' ? 'ancien' : 'nouveau';
+    }
+
+    /** Eleves inscrits dans la classe de la grille, restreints au public vise (nouveaux / anciens). */
+    private function elevesViseesParGrille(GrilleTarifaire $grille)
+    {
+        $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))
+            ->with('inscriptionActive')
+            ->get();
+
+        if (in_array($grille->applicable_a, ['nouveau', 'ancien'], true)) {
+            $eleves = $eleves->filter(fn ($e) => $this->publicEleve($e) === $grille->applicable_a)->values();
+        }
+
+        return $eleves;
+    }
+
+    /** Active ou desactive une grille (une grille inactive n'est plus appliquee aux nouveaux inscrits). */
+    public function basculerGrille(Request $request, $id)
+    {
+        $grille = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+        $grille->update(['actif' => ! $grille->actif]);
+
+        return response()->json([
+            'actif' => (bool) $grille->actif,
+            'message' => $grille->actif ? 'Grille tarifaire activée.' : 'Grille tarifaire désactivée : elle ne sera plus appliquée aux nouveaux élèves.',
+        ]);
     }
 
     public function synchroniserGrille(Request $request, $id)
@@ -126,6 +178,9 @@ class FraisController extends Controller
 
         if ($this->estFraisParEleve($grille)) {
             return response()->json(['message' => "Les frais d'inscription se gèrent élève par élève."], 422);
+        }
+        if (! $grille->actif) {
+            return response()->json(['message' => 'Activez la grille avant de la synchroniser.'], 422);
         }
 
         $crees = $this->appliquerGrilleAuxEleves($grille);
@@ -250,7 +305,7 @@ class FraisController extends Controller
         $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
-            ->with(['eleve.inscriptionActive.classe', 'echeanceEleve.fraisEleve.typeFrais'])
+            ->with(['eleve.inscriptionActive.classe', 'echeanceEleve.fraisEleve.typeFrais', 'caissier:id,name'])
             ->orderByDesc('date_paiement')
             ->orderByDesc('id')
             ->get();
@@ -274,6 +329,8 @@ class FraisController extends Controller
                 'heure' => $p->created_at?->format('H:i'),
                 'libelle' => $p->libelle,
                 'type_frais' => $p->echeanceEleve?->fraisEleve?->typeFrais?->nom,
+                'echeance_eleve_id' => $p->echeance_eleve_id,
+                'caissier' => $p->caissier?->name,
                 'eleve' => $p->eleve ? [
                     'id' => $p->eleve->id,
                     'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",

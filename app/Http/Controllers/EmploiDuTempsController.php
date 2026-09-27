@@ -9,6 +9,28 @@ use Illuminate\Http\Request;
 
 class EmploiDuTempsController extends Controller
 {
+    // Classes dont l'emploi du temps est elabore (au moins un cours planifie), dans l'ordre de
+    // GET /classes : c'est tout ce qu'un profil en simple consultation (ex. Comptable) peut ouvrir.
+    public function classesPlanifiees(Request $request)
+    {
+        $etablissementId = $request->user()->etablissement_id;
+
+        $comptes = EmploiDuTemps::join('affectations', 'affectations.id', '=', 'emploi_du_temps.affectation_id')
+            ->join('classes', 'classes.id', '=', 'affectations.classe_id')
+            ->where('classes.etablissement_id', $etablissementId)
+            ->groupBy('affectations.classe_id')
+            ->selectRaw('affectations.classe_id, COUNT(*) as creneaux')
+            ->pluck('creneaux', 'classe_id');
+
+        $classes = Classe::where('etablissement_id', $etablissementId)
+            ->whereIn('id', $comptes->keys())
+            ->ordonneesPedagogiquement()
+            ->get(['classes.id', 'classes.nom'])
+            ->map(fn ($c) => ['id' => $c->id, 'nom' => $c->nom, 'creneaux' => (int) $comptes[$c->id]]);
+
+        return response()->json($classes);
+    }
+
     public function index(Request $request, $classeId)
     {
         $etablissementId = $request->user()->etablissement_id;

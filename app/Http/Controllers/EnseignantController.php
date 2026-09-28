@@ -51,6 +51,7 @@ class EnseignantController extends Controller
                 'date_debut_contrat' => $contrat?->date_debut,
                 'date_fin_contrat' => $contrat?->date_fin,
                 'salaire_base' => $contrat ? (float) $contrat->salaire_base : null,
+                'taux_horaire_heures_sup' => $contrat?->taux_horaire_heures_sup !== null ? (float) $contrat->taux_horaire_heures_sup : null,
                 'a_un_compte' => $e->user_id !== null,
             ];
         });

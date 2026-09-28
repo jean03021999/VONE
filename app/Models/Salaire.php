@@ -9,7 +9,7 @@ class Salaire extends Model
     protected $fillable = [
         'enseignant_id', 'etablissement_id', 'mois', 'annee', 'type_remuneration',
         'salaire_base', 'nb_heures', 'taux_horaire', 'nb_heures_supp', 'taux_heure_supp',
-        'montant_net', 'moyen_paiement', 'date_paiement', 'statut', 'reference', 'observation',
+        'montant_net', 'moyen_paiement', 'date_paiement', 'statut', 'caissier_id', 'reference', 'observation',
     ];
 
     protected $casts = [
@@ -21,6 +21,11 @@ class Salaire extends Model
     public function enseignant()
     {
         return $this->belongsTo(Enseignant::class);
+    }
+
+    public function caissier()
+    {
+        return $this->belongsTo(User::class, 'caissier_id');
     }
 
     public function etablissement()

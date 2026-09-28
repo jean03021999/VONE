@@ -13,7 +13,7 @@ class SalaireController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $query = Salaire::where('etablissement_id', $etablissementId)
-            ->with('enseignant:id,nom,prenom,matricule');
+            ->with(['enseignant:id,nom,prenom,matricule', 'caissier:id,name']);
 
         if ($request->filled('mois')) {
             $query->where('mois', $request->mois);
@@ -80,13 +80,14 @@ class SalaireController extends Controller
             'observation' => $request->observation,
             'statut' => $payer ? 'paye' : 'en_attente',
             'date_paiement' => $payer ? now()->toDateString() : null,
+            'caissier_id' => $payer ? $request->user()->id : null,
         ]);
         $salaire->montant_net = $salaire->montant_calcule;
         $salaire->save();
 
         $salaire->update(['reference' => 'SAL-' . $salaire->annee . '-' . $salaire->id]);
 
-        return response()->json($salaire->load('enseignant:id,nom,prenom,matricule'), 201);
+        return response()->json($salaire->load(['enseignant:id,nom,prenom,matricule', 'caissier:id,name']), 201);
     }
 
     public function show(Request $request, $id)
@@ -99,6 +100,7 @@ class SalaireController extends Controller
                 'enseignant.affectations.classe',
                 'enseignant.affectations.matiere',
                 'etablissement:id,nom',
+                'caissier:id,name',
             ])
             ->findOrFail($id);
 
@@ -123,9 +125,10 @@ class SalaireController extends Controller
             'statut' => 'paye',
             'date_paiement' => now()->toDateString(),
             'moyen_paiement' => $request->moyen_paiement ?? $salaire->moyen_paiement,
+            'caissier_id' => $request->user()->id,
         ]);
 
-        return response()->json($salaire->load('enseignant:id,nom,prenom,matricule'));
+        return response()->json($salaire->load(['enseignant:id,nom,prenom,matricule', 'caissier:id,name']));
     }
 
     public function destroy(Request $request, $id)

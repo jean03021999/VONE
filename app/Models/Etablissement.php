@@ -13,6 +13,12 @@ class Etablissement extends Model
         'nom', 'code', 'type', 'pays', 'ville', 'adresse',
         'telephone', 'email', 'logo_path', 'langue_principale',
         'devise', 'statut', 'date_fin_essai',
+        'quartier', 'region', 'prefecture', 'coordonnees_gps', 'telephone_secondaire',
+        'cycles', 'capacite_accueil', 'agrement', 'slogan',
+    ];
+
+    protected $casts = [
+        'cycles' => 'array',
     ];
 
     public function sessionsScolaires()

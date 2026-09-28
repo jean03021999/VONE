@@ -18,6 +18,7 @@ use App\Http\Controllers\UtilisateurController;
 use App\Http\Controllers\AbonnementController;
 use App\Http\Controllers\StatsPubliquesController;
 use App\Http\Controllers\SalaireController;
+use App\Http\Controllers\ParametresController;
 
 Route::get('/user', function (Request $request) {
     $user = $request->user();
@@ -151,4 +152,23 @@ Route::middleware(['auth:sanctum', 'permission:enseignants.salaires.gerer'])->gr
     Route::post('/salaires', [SalaireController::class, 'store']);
     Route::post('/salaires/{id}/payer', [SalaireController::class, 'payer']);
     Route::delete('/salaires/{id}', [SalaireController::class, 'destroy']);
+});
+
+// Parametres : profil et securite du compte connecte pour tous ; fiche etablissement et sessions
+// reservees a la direction (verifie dans le controleur).
+Route::get('/etablissements/{id}/logo', [ParametresController::class, 'logo']);
+
+Route::middleware(['auth:sanctum'])->prefix('parametres')->group(function () {
+    Route::get('/', [ParametresController::class, 'index']);
+    Route::put('/etablissement', [ParametresController::class, 'updateEtablissement']);
+    Route::post('/etablissement/logo', [ParametresController::class, 'enregistrerLogo']);
+    Route::delete('/etablissement/logo', [ParametresController::class, 'supprimerLogo']);
+    Route::put('/profil', [ParametresController::class, 'updateProfil']);
+    Route::put('/mot-de-passe', [ParametresController::class, 'changerMotDePasse']);
+    Route::delete('/connexions/autres', [ParametresController::class, 'fermerAutresConnexions']);
+    Route::delete('/connexions/{id}', [ParametresController::class, 'fermerConnexion']);
+    Route::delete('/appareils', [ParametresController::class, 'oublierAppareils']);
+    Route::delete('/appareils/{id}', [ParametresController::class, 'oublierAppareil']);
+    Route::post('/sessions', [ParametresController::class, 'creerSession']);
+    Route::post('/sessions/{id}/activer', [ParametresController::class, 'activerSession']);
 });

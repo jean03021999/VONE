@@ -34,20 +34,37 @@ class FraisController extends Controller
     {
         $grilles = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)
             ->with(['classe', 'typeFrais', 'echeances'])
-            ->get()
-            ->map(function ($grille) {
-                // Eleves vises : ceux de la classe, restreints au public de la grille (nouveaux /
-                // anciens) ; couverts = ceux qui ont deja un frais de ce type sur la session.
-                $eleveIds = $this->elevesViseesParGrille($grille)->pluck('id');
-                $nombreCouverts = FraisEleve::where('type_frais_id', $grille->type_frais_id)
-                    ->where('session_scolaire_id', $grille->session_scolaire_id)
-                    ->whereIn('eleve_id', $eleveIds)
-                    ->count();
+            ->get();
 
-                $grille->nombre_eleves_classe = $eleveIds->count();
-                $grille->nombre_eleves_couverts = $nombreCouverts;
-                return $grille;
-            });
+        // Memes regles que elevesViseesParGrille(), en deux requetes pour toutes les grilles (au
+        // lieu de trois par grille) : inscriptions actives de la session active par classe, puis
+        // frais deja crees pour ces eleves.
+        $inscriptionsParClasse = \App\Models\Inscription::whereIn('classe_id', $grilles->pluck('classe_id')->unique())
+            ->where('statut', 'active')
+            ->whereHas('sessionScolaire', fn ($q) => $q->where('est_active', true))
+            ->whereHas('eleve')
+            ->get(['eleve_id', 'classe_id', 'type_inscription'])
+            ->groupBy('classe_id');
+
+        $fraisExistants = FraisEleve::whereIn('type_frais_id', $grilles->pluck('type_frais_id')->unique())
+            ->whereIn('eleve_id', $inscriptionsParClasse->flatten()->pluck('eleve_id')->unique())
+            ->get(['eleve_id', 'type_frais_id', 'session_scolaire_id'])
+            ->mapWithKeys(fn ($f) => ["{$f->type_frais_id}|{$f->session_scolaire_id}|{$f->eleve_id}" => true]);
+
+        $grilles->each(function ($grille) use ($inscriptionsParClasse, $fraisExistants) {
+            // Eleves vises : ceux de la classe, restreints au public de la grille (nouveaux /
+            // anciens) ; couverts = ceux qui ont deja un frais de ce type sur la session.
+            $eleveIds = ($inscriptionsParClasse[$grille->classe_id] ?? collect())
+                ->filter(fn ($i) => !in_array($grille->applicable_a, ['nouveau', 'ancien'], true)
+                    || ($i->type_inscription === 'reinscription' ? 'ancien' : 'nouveau') === $grille->applicable_a)
+                ->pluck('eleve_id')
+                ->unique();
+
+            $grille->nombre_eleves_classe = $eleveIds->count();
+            $grille->nombre_eleves_couverts = $eleveIds
+                ->filter(fn ($id) => isset($fraisExistants["{$grille->type_frais_id}|{$grille->session_scolaire_id}|{$id}"]))
+                ->count();
+        });
 
         return response()->json($grilles);
     }

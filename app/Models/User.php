@@ -11,13 +11,30 @@ class User extends Authenticatable
     use Notifiable, HasApiTokens;
 
     protected $fillable = [
-        'etablissement_id', 'name', 'email', 'telephone', 'password', 'statut',
+        'etablissement_id', 'name', 'email', 'telephone', 'photo_path', 'password', 'statut',
         'created_by', 'updated_by',
     ];
 
     protected $hidden = [
-        'password', 'remember_token',
+        'password', 'remember_token', 'photo_path',
     ];
+
+    protected $appends = ['photo_url'];
+
+    // Lien signe (valable 7 jours) : la photo s'affiche dans un <img> sans jeton, mais seulement
+    // pour qui a recu le lien d'une reponse authentifiee.
+    public function getPhotoUrlAttribute(): ?string
+    {
+        if (!$this->photo_path) {
+            return null;
+        }
+
+        return \Illuminate\Support\Facades\URL::temporarySignedRoute(
+            'utilisateurs.photo',
+            now()->addDays(7),
+            ['id' => $this->id, 'v' => $this->updated_at?->timestamp]
+        );
+    }
 
     public function etablissement()
     {

@@ -25,6 +25,7 @@ class UtilisateurController extends Controller
                 'email' => $u->email,
                 'telephone' => $u->telephone,
                 'statut' => $u->statut,
+                'photo_url' => $u->photo_url,
                 'roles' => $u->roles->pluck('nom'),
                 'derniere_activite' => $u->derniere_activite ? \Illuminate\Support\Carbon::parse($u->derniere_activite)->toIso8601String() : null,
             ]);

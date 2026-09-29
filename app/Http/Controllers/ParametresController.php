@@ -35,6 +35,7 @@ class ParametresController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'telephone' => $user->telephone,
+                'photo_url' => $user->photo_url,
                 'role' => $this->roleActuel($user),
                 'membre_depuis' => $user->created_at?->toDateString(),
             ],
@@ -143,11 +144,63 @@ class ParametresController extends Controller
 
         $user->update($donnees + ['updated_by' => $user->id]);
 
-        return response()->json([
+        return response()->json($this->profilPublic($user));
+    }
+
+    public function enregistrerPhoto(Request $request)
+    {
+        $request->validate(['photo' => 'required|image|mimes:png,jpg,jpeg,webp|max:2048'], [
+            'photo.max' => 'La photo ne doit pas dépasser 2 Mo.',
+            'photo.image' => 'Le fichier doit être une image.',
+            'photo.mimes' => 'Formats acceptés : PNG, JPG ou WebP.',
+        ]);
+
+        $user = $request->user();
+        if ($user->photo_path) {
+            Storage::disk('local')->delete($user->photo_path);
+        }
+        $chemin = $request->file('photo')->storeAs(
+            'photos-utilisateurs',
+            $user->id . '-' . time() . '.' . $request->file('photo')->extension(),
+            'local'
+        );
+        $user->update(['photo_path' => $chemin]);
+
+        return response()->json($this->profilPublic($user->fresh()));
+    }
+
+    public function supprimerPhoto(Request $request)
+    {
+        $user = $request->user();
+        if ($user->photo_path) {
+            Storage::disk('local')->delete($user->photo_path);
+            $user->update(['photo_path' => null]);
+        }
+
+        return response()->json($this->profilPublic($user->fresh()));
+    }
+
+    // Route signee (voir User::getPhotoUrlAttribute).
+    public function photo($id)
+    {
+        $user = User::findOrFail($id);
+        if (!$user->photo_path || !Storage::disk('local')->exists($user->photo_path)) {
+            abort(404);
+        }
+
+        return response()->file(Storage::disk('local')->path($user->photo_path), [
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
+    }
+
+    private function profilPublic(User $user): array
+    {
+        return [
             'name' => $user->name,
             'email' => $user->email,
             'telephone' => $user->telephone,
-        ]);
+            'photo_url' => $user->photo_url,
+        ];
     }
 
     public function changerMotDePasse(Request $request)

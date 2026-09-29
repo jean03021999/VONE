@@ -157,6 +157,7 @@ Route::middleware(['auth:sanctum', 'permission:enseignants.salaires.gerer'])->gr
 // Parametres : profil et securite du compte connecte pour tous ; fiche etablissement et sessions
 // reservees a la direction (verifie dans le controleur).
 Route::get('/etablissements/{id}/logo', [ParametresController::class, 'logo']);
+Route::get('/utilisateurs/{id}/photo', [ParametresController::class, 'photo'])->middleware('signed')->name('utilisateurs.photo');
 
 Route::middleware(['auth:sanctum'])->prefix('parametres')->group(function () {
     Route::get('/', [ParametresController::class, 'index']);
@@ -164,6 +165,8 @@ Route::middleware(['auth:sanctum'])->prefix('parametres')->group(function () {
     Route::post('/etablissement/logo', [ParametresController::class, 'enregistrerLogo']);
     Route::delete('/etablissement/logo', [ParametresController::class, 'supprimerLogo']);
     Route::put('/profil', [ParametresController::class, 'updateProfil']);
+    Route::post('/profil/photo', [ParametresController::class, 'enregistrerPhoto']);
+    Route::delete('/profil/photo', [ParametresController::class, 'supprimerPhoto']);
     Route::put('/mot-de-passe', [ParametresController::class, 'changerMotDePasse']);
     Route::delete('/connexions/autres', [ParametresController::class, 'fermerAutresConnexions']);
     Route::delete('/connexions/{id}', [ParametresController::class, 'fermerConnexion']);

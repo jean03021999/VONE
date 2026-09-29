@@ -21,6 +21,16 @@ class Etablissement extends Model
         'cycles' => 'array',
     ];
 
+    protected $appends = ['logo_url'];
+
+    // Horodatage dans l'URL : le navigateur recharge le logo apres un changement.
+    public function getLogoUrlAttribute(): ?string
+    {
+        return $this->logo_path
+            ? url("/api/etablissements/{$this->id}/logo") . '?v=' . $this->updated_at?->timestamp
+            : null;
+    }
+
     public function sessionsScolaires()
     {
         return $this->hasMany(SessionScolaire::class);

@@ -99,7 +99,7 @@ class SalaireController extends Controller
                 'enseignant.contratActif',
                 'enseignant.affectations.classe',
                 'enseignant.affectations.matiere',
-                'etablissement:id,nom',
+                'etablissement',
                 'caissier:id,name',
             ])
             ->findOrFail($id);

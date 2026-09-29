@@ -346,8 +346,7 @@ class ParametresController extends Controller
             'devise' => $e->devise,
             'statut' => $e->statut,
             'date_fin_essai' => $e->date_fin_essai,
-            // Horodatage dans l'URL : le navigateur recharge le logo apres un changement.
-            'logo_url' => $e->logo_path ? url("/api/etablissements/{$e->id}/logo") . '?v=' . $e->updated_at?->timestamp : null,
+            'logo_url' => $e->logo_url,
         ];
     }
 

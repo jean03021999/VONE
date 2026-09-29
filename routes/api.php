@@ -35,8 +35,12 @@ Route::get('/user', function (Request $request) {
         'user' => $user,
         'role' => $role ? strtoupper($role->nom) : null,
         'permissions' => $role ? $role->permissions()->pluck('nom') : [],
-        // Coordonnees aussi : en-tete des documents imprimes (recu de paiement, releve).
-        'etablissement' => $user->etablissement?->only(['nom', 'ville', 'adresse', 'telephone', 'email']),
+        // Fiche complete : en-tete de l'application et des documents imprimes (logo, coordonnees,
+        // agrement, slogan) et alerte de capacite d'accueil.
+        'etablissement' => $user->etablissement ? $user->etablissement->only([
+            'id', 'nom', 'ville', 'quartier', 'adresse', 'telephone', 'telephone_secondaire', 'email',
+            'agrement', 'slogan', 'capacite_accueil', 'logo_url',
+        ]) : null,
         'session' => $session?->libelle,
     ]);
 })->middleware('auth:sanctum');

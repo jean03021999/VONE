@@ -21,8 +21,9 @@ class User extends Authenticatable
 
     protected $appends = ['photo_url'];
 
-    // Lien signe (valable 7 jours) : la photo s'affiche dans un <img> sans jeton, mais seulement
-    // pour qui a recu le lien d'une reponse authentifiee.
+    // Lien signe : la photo s'affiche dans un <img> sans jeton, mais seulement pour qui a recu le
+    // lien d'une reponse authentifiee. Expiration calee sur le jour (7 a 8 jours) : le lien reste
+    // identique toute la journee et le navigateur garde la photo en cache.
     public function getPhotoUrlAttribute(): ?string
     {
         if (!$this->photo_path) {
@@ -31,7 +32,7 @@ class User extends Authenticatable
 
         return \Illuminate\Support\Facades\URL::temporarySignedRoute(
             'utilisateurs.photo',
-            now()->addDays(7),
+            today()->addDays(8),
             ['id' => $this->id, 'v' => $this->updated_at?->timestamp]
         );
     }

@@ -187,6 +187,181 @@ class FraisController extends Controller
         ]);
     }
 
+    /** Renomme un type de frais (nom unique dans l'etablissement). */
+    public function updateTypeFrais(Request $request, $id)
+    {
+        $etablissementId = $request->user()->etablissement_id;
+        $type = TypeFrais::where('etablissement_id', $etablissementId)->findOrFail($id);
+        $request->validate([
+            'nom' => ['required', 'string', 'max:100', \Illuminate\Validation\Rule::unique('types_frais', 'nom')->where('etablissement_id', $etablissementId)->ignore($type->id)],
+        ], ['nom.unique' => 'Un type de frais porte déjà ce nom.']);
+
+        $type->update(['nom' => trim($request->nom)]);
+
+        return response()->json($type);
+    }
+
+    /** Supprime un type de frais jamais utilise (ni grille, ni frais d'eleve). */
+    public function destroyTypeFrais(Request $request, $id)
+    {
+        $type = TypeFrais::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+
+        $grilles = GrilleTarifaire::where('type_frais_id', $type->id)->count();
+        $frais = FraisEleve::where('type_frais_id', $type->id)->count();
+        if ($grilles || $frais) {
+            return response()->json([
+                'message' => "Suppression impossible : « {$type->nom} » est utilisé par {$grilles} grille(s) et {$frais} frais d'élève(s). Supprimez d'abord ses grilles.",
+            ], 422);
+        }
+
+        $type->delete();
+
+        return response()->json(['message' => "Type de frais « {$type->nom} » supprimé."]);
+    }
+
+    /**
+     * Modifie le montant et les echeances d'une grille. Avec `propager`, les eleves deja factures
+     * par cette grille et n'ayant encore rien paye dessus recoivent le nouveau tarif ; ceux qui ont
+     * deja paye (ou dont le frais a ete personnalise) gardent leur echeancier.
+     */
+    public function updateGrille(Request $request, $id)
+    {
+        $request->validate([
+            'montant' => 'required|numeric|min:0',
+            'echeances' => 'required|array|min:1',
+            'echeances.*.libelle' => 'required|string|max:100',
+            'echeances.*.montant' => 'required|numeric|min:0',
+            'echeances.*.date_limite' => 'required|date',
+            'propager' => 'boolean',
+        ]);
+
+        $grille = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+
+        $totalEcheances = collect($request->echeances)->sum(fn ($e) => (float) $e['montant']);
+        if (abs($totalEcheances - (float) $request->montant) > 1) {
+            return response()->json(['message' => 'Le total des échéances doit être égal au montant de la grille.'], 422);
+        }
+
+        $resultat = DB::transaction(function () use ($request, $grille) {
+            $grille->update(['montant' => $request->montant]);
+            $grille->echeances()->delete();
+            foreach ($request->echeances as $ech) {
+                $grille->echeances()->create([
+                    'libelle' => $ech['libelle'],
+                    'montant' => $ech['montant'],
+                    'date_limite' => $ech['date_limite'],
+                ]);
+            }
+
+            $misAJour = 0;
+            $conserves = 0;
+            if ($request->boolean('propager')) {
+                $frais = FraisEleve::where('grille_tarifaire_id', $grille->id)->with('echeances:id,frais_eleve_id')->get();
+                // Tout paiement, meme annule, est conserve : refaire l'echeancier l'effacerait (cascade).
+                $avecPaiement = Paiement::whereIn('echeance_eleve_id', $frais->flatMap->echeances->pluck('id'))
+                    ->join('echeances_eleves', 'echeances_eleves.id', '=', 'paiements.echeance_eleve_id')
+                    ->distinct()
+                    ->pluck('echeances_eleves.frais_eleve_id')
+                    ->flip();
+                foreach ($frais as $f) {
+                    if (isset($avecPaiement[$f->id]) || $f->motif_personnalisation) {
+                        $conserves++;
+                        continue;
+                    }
+                    // Aucun paiement : l'echeancier est refait au nouveau tarif.
+                    $f->update(['montant_total' => $request->montant, 'montant_original' => $request->montant]);
+                    $f->echeances()->delete();
+                    foreach ($request->echeances as $ech) {
+                        $f->echeances()->create([
+                            'libelle' => $ech['libelle'],
+                            'montant' => $ech['montant'],
+                            'date_limite' => $ech['date_limite'],
+                        ]);
+                    }
+                    $misAJour++;
+                }
+            }
+
+            return ['mis_a_jour' => $misAJour, 'conserves' => $conserves];
+        });
+
+        $message = 'Grille tarifaire mise à jour.';
+        if ($request->boolean('propager')) {
+            $message .= " {$resultat['mis_a_jour']} élève(s) passé(s) au nouveau tarif";
+            $message .= $resultat['conserves'] ? ", {$resultat['conserves']} conservé(s) car ayant déjà payé." : '.';
+        }
+
+        return response()->json(['message' => $message] + $resultat + ['grille' => $grille->fresh('echeances')]);
+    }
+
+    /**
+     * Supprime une grille et les frais qu'elle a crees, si aucun eleve n'a encore paye dessus.
+     * Sinon refus : la desactiver empeche qu'elle s'applique aux nouveaux inscrits.
+     */
+    public function destroyGrille(Request $request, $id)
+    {
+        $grille = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)->with('classe', 'typeFrais')->findOrFail($id);
+
+        $fraisIds = FraisEleve::where('grille_tarifaire_id', $grille->id)->pluck('id');
+        // Paiements annules compris : les frais supprimes effaceraient leur trace du journal.
+        $payeurs = Paiement::whereHas('echeanceEleve', fn ($q) => $q->whereIn('frais_eleve_id', $fraisIds))
+            ->distinct('eleve_id')
+            ->count('eleve_id');
+        if ($payeurs > 0) {
+            return response()->json([
+                'message' => "Suppression impossible : {$payeurs} élève(s) ont déjà des paiements sur cette grille. Désactivez-la plutôt pour qu'elle ne s'applique plus aux nouveaux inscrits.",
+            ], 422);
+        }
+
+        DB::transaction(function () use ($grille, $fraisIds) {
+            FraisEleve::whereIn('id', $fraisIds)->delete();
+            $grille->echeances()->delete();
+            $grille->delete();
+        });
+
+        return response()->json([
+            'message' => "Grille « {$grille->typeFrais?->nom} · {$grille->classe?->nom} » supprimée"
+                . ($fraisIds->count() ? " ainsi que {$fraisIds->count()} frais d'élève(s) non payés." : '.'),
+        ]);
+    }
+
+    /**
+     * Annule un versement (tous ses paiements) enregistre par erreur. Les paiements restent dans le
+     * journal, marques annules avec l'auteur et le motif, et ne comptent plus dans les soldes.
+     */
+    public function annulerPaiements(Request $request)
+    {
+        $request->validate([
+            'paiement_ids' => 'required|array|min:1',
+            'paiement_ids.*' => 'integer',
+            'motif' => 'required|string|min:3|max:255',
+        ], ['motif.required' => "Indiquez le motif de l'annulation.", 'motif.min' => "Indiquez le motif de l'annulation."]);
+
+        $etablissementId = $request->user()->etablissement_id;
+        $paiements = Paiement::whereIn('id', $request->paiement_ids)
+            ->whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId))
+            ->get();
+
+        if ($paiements->count() !== count(array_unique($request->paiement_ids))) {
+            return response()->json(['message' => 'Paiement introuvable.'], 404);
+        }
+        if ($paiements->whereNotNull('annule_le')->isNotEmpty()) {
+            return response()->json(['message' => 'Ce versement est déjà annulé.'], 422);
+        }
+
+        DB::transaction(function () use ($paiements, $request) {
+            Paiement::whereIn('id', $paiements->pluck('id'))->update([
+                'annule_le' => now(),
+                'annule_par' => $request->user()->id,
+                'motif_annulation' => trim($request->motif),
+            ]);
+        });
+
+        return response()->json([
+            'message' => 'Versement de ' . number_format($paiements->sum(fn ($p) => (float) $p->montant), 0, ',', ' ') . ' GNF annulé.',
+        ]);
+    }
+
     public function synchroniserGrille(Request $request, $id)
     {
         $grille = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)
@@ -322,7 +497,7 @@ class FraisController extends Controller
         $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
-            ->with(['eleve.inscriptionActive.classe', 'echeanceEleve.fraisEleve.typeFrais', 'caissier:id,name'])
+            ->with(['eleve.inscriptionActive.classe', 'echeanceEleve.fraisEleve.typeFrais', 'caissier:id,name', 'annulateur:id,name'])
             ->orderByDesc('date_paiement')
             ->orderByDesc('id')
             ->get();
@@ -348,6 +523,11 @@ class FraisController extends Controller
                 'type_frais' => $p->echeanceEleve?->fraisEleve?->typeFrais?->nom,
                 'echeance_eleve_id' => $p->echeance_eleve_id,
                 'caissier' => $p->caissier?->name,
+                // Paiement annule : reste visible dans le journal mais hors des totaux.
+                'annule' => $p->annule_le !== null,
+                'annule_le' => $p->annule_le?->toIso8601String(),
+                'annule_par' => $p->annulateur?->name,
+                'motif_annulation' => $p->motif_annulation,
                 'eleve' => $p->eleve ? [
                     'id' => $p->eleve->id,
                     'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",
@@ -405,7 +585,7 @@ class FraisController extends Controller
         $nombreVersements = 5;
 
         // Assez de paiements pour reconstituer 5 versements (un versement en compte rarement plus de 4).
-        $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
+        $paiements = Paiement::valides()->whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
             ->with([

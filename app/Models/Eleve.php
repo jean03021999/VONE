@@ -49,9 +49,10 @@ class Eleve extends Model
         return $this->hasMany(EleveFiliation::class);
     }
 
+    // Paiements valides seulement (voir EcheanceEleve::paiements).
     public function paiements()
     {
-        return $this->hasMany(Paiement::class);
+        return $this->hasMany(Paiement::class)->whereNull('annule_le');
     }
 
     public function fraisEleves()

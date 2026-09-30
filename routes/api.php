@@ -97,6 +97,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/frais/grilles', [FraisController::class, 'storeGrille'])->middleware('permission:frais.creer');
     Route::post('/frais/grilles/{id}/synchroniser', [FraisController::class, 'synchroniserGrille'])->middleware('permission:frais.creer');
     Route::post('/frais/grilles/{id}/basculer', [FraisController::class, 'basculerGrille'])->middleware('permission:frais.creer');
+    Route::put('/frais/grilles/{id}', [FraisController::class, 'updateGrille'])->middleware('permission:frais.creer');
+    Route::delete('/frais/grilles/{id}', [FraisController::class, 'destroyGrille'])->middleware('permission:frais.creer');
+    Route::put('/frais/types/{id}', [FraisController::class, 'updateTypeFrais'])->middleware('permission:frais.creer');
+    Route::delete('/frais/types/{id}', [FraisController::class, 'destroyTypeFrais'])->middleware('permission:frais.creer');
+    Route::post('/frais/paiements/annuler', [FraisController::class, 'annulerPaiements'])->middleware('permission:frais.paiement.enregistrer');
     Route::post('/frais/appliquer-inscription', [FraisController::class, 'appliquerInscription'])->middleware('permission:frais.creer');
     Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve'])->middleware('permission:frais.voir');
     Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:frais.paiement.enregistrer');

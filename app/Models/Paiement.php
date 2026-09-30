@@ -8,8 +8,23 @@ class Paiement extends Model
 {
     protected $fillable = [
         'eleve_id', 'echeance_eleve_id', 'libelle', 'montant', 'moyen_paiement', 'date_paiement',
-        'reference', 'caissier_id', 'observation',
+        'reference', 'caissier_id', 'observation', 'annule_le', 'annule_par', 'motif_annulation',
     ];
+
+    protected $casts = [
+        'annule_le' => 'datetime',
+    ];
+
+    /** Paiements comptant reellement (hors annules). */
+    public function scopeValides($query)
+    {
+        return $query->whereNull('annule_le');
+    }
+
+    public function annulateur()
+    {
+        return $this->belongsTo(User::class, 'annule_par');
+    }
 
     public function eleve()
     {

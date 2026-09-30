@@ -15,9 +15,11 @@ class EcheanceEleve extends Model
         return $this->belongsTo(FraisEleve::class);
     }
 
+    // Paiements valides seulement : un paiement annule ne compte plus dans le montant paye, le
+    // solde ni les statuts (toutes les sommes passent par cette relation).
     public function paiements()
     {
-        return $this->hasMany(Paiement::class, 'echeance_eleve_id');
+        return $this->hasMany(Paiement::class, 'echeance_eleve_id')->whereNull('annule_le');
     }
 
     /**

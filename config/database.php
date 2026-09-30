@@ -97,6 +97,9 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Connexion reutilisee d'une requete a l'autre par le meme processus PHP (Laragon / FastCGI) :
+            // sous Windows, ouvrir une connexion PostgreSQL coute 130 a 350 ms.
+            'options' => [PDO::ATTR_PERSISTENT => (bool) env('DB_PERSISTENT', false)],
         ],
 
         'sqlsrv' => [

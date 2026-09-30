@@ -15,8 +15,7 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $query = Eleve::where('etablissement_id', $etablissementId)
-            ->with('inscriptionActive.classe', 'inscriptionActive.sessionScolaire')
-            ->avecStatutPaiement();
+            ->with('inscriptionActive.classe', 'inscriptionActive.sessionScolaire');
 
         if ($request->filled('classe_id')) {
             $query->whereHas('inscriptionActive', fn ($q) => $q->where('classe_id', $request->classe_id));
@@ -46,8 +45,13 @@ class EleveController extends Controller
                 $f->eleve_id => str_starts_with(strtolower(\Illuminate\Support\Str::ascii($f->typeFrais->nom)), 're') ? 'reinscription' : 'inscription',
             ]);
 
-        $eleves = $eleves->map(function ($eleve) use ($inscriptionReglee) {
-            $statutPaiement = $eleve->statut_paiement;
+        // Statuts de paiement : echeances de scolarite de tous les eleves en une requete.
+        $scolarite = Eleve::echeancesScolariteDe($eleves->pluck('id'));
+
+        $eleves = $eleves->map(function ($eleve) use ($inscriptionReglee, $scolarite) {
+            $echeances = $scolarite[$eleve->id]['echeances'] ?? collect();
+            $sessionId = $scolarite[$eleve->id]['session_id'] ?? null;
+            $statutPaiement = Eleve::statutDepuis($echeances, $sessionId);
 
             return [
                 'id' => $eleve->id,
@@ -71,7 +75,7 @@ class EleveController extends Controller
                 // 'inscription' | 'reinscription' | null (frais d'inscription pas encore enregistres)
                 'inscription_reglee' => $inscriptionReglee[$eleve->id] ?? null,
                 // { echeance, date_limite, nombre_echeances, montant_du } pour un eleve en retard
-                'retard' => $statutPaiement === 'en_retard' ? $eleve->detailRetard() : null,
+                'retard' => $statutPaiement === 'en_retard' ? Eleve::detailRetardDepuis($echeances, $sessionId) : null,
             ];
         });
 
@@ -80,6 +84,7 @@ class EleveController extends Controller
         $enRetard = $eleves->where('statut_paiement', 'en_retard')->count();
         $partiel = $eleves->where('statut_paiement', 'partiel')->count();
         $aEchoir = $eleves->where('statut_paiement', 'a_echoir')->count();
+        $inscrits = $eleves->whereNotNull('inscription_reglee')->count();
 
         // Filtre facultatif par statut (ex. ?statut_paiement=en_retard) : les stats restent calculees
         // sur l'ensemble des eleves.
@@ -96,7 +101,7 @@ class EleveController extends Controller
                 'en_retard' => $enRetard,
                 'partiel' => $partiel,
                 'a_echoir' => $aEchoir,
-                'inscrits' => $eleves->whereNotNull('inscription_reglee')->count(),
+                'inscrits' => $inscrits,
             ],
         ]);
     }

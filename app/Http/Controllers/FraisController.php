@@ -653,15 +653,13 @@ class FraisController extends Controller
         // une fois et ne comptent ni dans les montants ni dans les statuts (meme filtre que
         // Eleve::getStatutPaiementAttribute ; "scolarit%" couvre "Scolarite" et "Scolarité").
         $classes = Classe::where('etablissement_id', $etablissementId)
-            ->with([
-                'eleves.fraisEleves' => fn ($q) => $q->whereHas('typeFrais', fn ($t) => $t->where('nom', 'ILIKE', 'scolarit%')),
-                // Somme des paiements prechargee : montant_paye / solde / statut sans requete par echeance.
-                'eleves.fraisEleves.echeances' => fn ($q) => $q->withSum('paiements', 'montant'),
-            ])
+            ->with('eleves')
             ->ordonneesPedagogiquement()
             ->get();
+        // Echeances de scolarite (et total paye) de tous les eleves en une requete, sans modeles.
+        $scolarite = \App\Models\Eleve::echeancesScolariteDe($classes->flatMap->eleves->pluck('id')->unique());
 
-        $resultat = $classes->map(function ($classe) {
+        $resultat = $classes->map(function ($classe) use ($scolarite) {
             $montantTotal = 0;
             $montantEncaisse = 0;
             $nombreSoldes = 0;
@@ -669,7 +667,7 @@ class FraisController extends Controller
             $nombreSansFrais = 0;
 
             foreach ($classe->eleves as $eleve) {
-                $echeances = $eleve->fraisEleves->flatMap->echeances;
+                $echeances = $scolarite[$eleve->id]['echeances'] ?? collect();
 
                 if ($echeances->isEmpty()) {
                     $nombreSansFrais++;
@@ -680,11 +678,8 @@ class FraisController extends Controller
                 $montantEncaisse += $echeances->sum('montant_paye');
 
                 // Meme calcul que le statut de l'eleve (regle du 10 comprise).
-                $aDuRetard = \App\Models\Eleve::calculerStatutPaiement(
-                    $echeances,
-                    \App\Models\Eleve::dateLimiteSansPaiement($eleve->fraisEleves->first()?->session_scolaire_id)
-                ) === 'en_retard';
-                $estSolde = $echeances->every(fn($e) => $e->solde <= 0);
+                $aDuRetard = \App\Models\Eleve::statutDepuis($echeances, $scolarite[$eleve->id]['session_id']) === 'en_retard';
+                $estSolde = $echeances->every(fn($e) => $e->montant - $e->montant_paye <= 0);
 
                 if ($aDuRetard) {
                     $nombreEnRetard++;

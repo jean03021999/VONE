@@ -90,6 +90,63 @@ class Eleve extends Model
     {
         [$echeances, $sessionId] = $this->echeancesScolarite();
 
+        return self::detailRetardDepuis($echeances, $sessionId);
+    }
+
+    /**
+     * Echeances de scolarite de plusieurs eleves en UNE requete, sans creer de modeles (les listes
+     * de 1000 eleves passaient l'essentiel de leur temps a instancier frais et echeances) :
+     * [eleve_id => ['echeances' => Collection d'objets {id, libelle, montant, date_limite,
+     * montant_paye}, 'session_id' => ?int]]. Memes regles que fraisScolarite() + withSum.
+     */
+    public static function echeancesScolariteDe($eleveIds): array
+    {
+        $ids = collect($eleveIds)->all();
+        // Total paye par echeance, calcule une fois pour tous les eleves (et non par echeance).
+        // Paiements valides seulement (voir EcheanceEleve::paiements).
+        $payes = \Illuminate\Support\Facades\DB::table('paiements')
+            ->whereIn('eleve_id', $ids)
+            ->whereNull('annule_le')
+            ->groupBy('echeance_eleve_id')
+            ->select('echeance_eleve_id')
+            ->selectRaw('SUM(montant) AS total');
+
+        $lignes = \Illuminate\Support\Facades\DB::table('echeances_eleves as ee')
+            ->join('frais_eleves as fe', 'fe.id', '=', 'ee.frais_eleve_id')
+            ->join('types_frais as tf', 'tf.id', '=', 'fe.type_frais_id')
+            ->leftJoinSub($payes, 'p', 'p.echeance_eleve_id', '=', 'ee.id')
+            ->whereIn('fe.eleve_id', $ids)
+            ->where('tf.nom', 'ILIKE', 'scolarit%')
+            ->orderBy('fe.id')
+            ->orderBy('ee.id')
+            ->select('fe.eleve_id', 'fe.session_scolaire_id', 'ee.id', 'ee.libelle', 'ee.montant', 'ee.date_limite')
+            ->selectRaw('COALESCE(p.total, 0) AS montant_paye')
+            ->get();
+
+        $parEleve = [];
+        foreach ($lignes as $l) {
+            $parEleve[$l->eleve_id] ??= ['echeances' => [], 'session_id' => $l->session_scolaire_id];
+            $parEleve[$l->eleve_id]['echeances'][] = (object) [
+                'id' => $l->id,
+                'libelle' => $l->libelle,
+                'montant' => (float) $l->montant,
+                'date_limite' => substr((string) $l->date_limite, 0, 10),
+                'montant_paye' => (float) $l->montant_paye,
+            ];
+        }
+
+        return array_map(fn ($d) => ['echeances' => collect($d['echeances']), 'session_id' => $d['session_id']], $parEleve);
+    }
+
+    /** Statut de paiement a partir de echeancesScolariteDe(). */
+    public static function statutDepuis($echeances, ?int $sessionId): string
+    {
+        return self::calculerStatutPaiement($echeances, self::dateLimiteSansPaiement($sessionId));
+    }
+
+    /** Detail du retard (voir detailRetard) a partir d'echeances deja chargees. */
+    public static function detailRetardDepuis($echeances, ?int $sessionId): ?array
+    {
         $aujourdhui = today()->toDateString();
         $depassees = $echeances
             ->filter(fn ($e) => substr((string) $e->date_limite, 0, 10) < $aujourdhui && (float) $e->montant - $e->montant_paye > 0)

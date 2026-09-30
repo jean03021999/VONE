@@ -19,6 +19,7 @@ use App\Http\Controllers\AbonnementController;
 use App\Http\Controllers\StatsPubliquesController;
 use App\Http\Controllers\SalaireController;
 use App\Http\Controllers\ParametresController;
+use App\Http\Controllers\CaisseController;
 
 Route::get('/user', function (Request $request) {
     $user = $request->user();
@@ -201,4 +202,12 @@ Route::middleware(['auth:sanctum'])->prefix('parametres')->group(function () {
     Route::delete('/appareils/{id}', [ParametresController::class, 'oublierAppareil']);
     Route::post('/sessions', [ParametresController::class, 'creerSession']);
     Route::post('/sessions/{id}/activer', [ParametresController::class, 'activerSession']);
+});
+
+// Caisse : solde (encaissements - salaires verses - depenses) et depenses de l'etablissement.
+Route::middleware(['auth:sanctum'])->prefix('caisse')->group(function () {
+    Route::get('/synthese', [CaisseController::class, 'synthese'])->middleware('permission:frais.voir');
+    Route::get('/sorties', [CaisseController::class, 'sorties'])->middleware('permission:frais.voir');
+    Route::post('/depenses', [CaisseController::class, 'storeDepense'])->middleware('permission:frais.paiement.enregistrer');
+    Route::post('/depenses/{id}/annuler', [CaisseController::class, 'annulerDepense'])->middleware('permission:frais.paiement.enregistrer');
 });

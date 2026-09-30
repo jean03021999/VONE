@@ -6,7 +6,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class MatiereCoefficient extends Model
 {
-    protected $fillable = ['matiere_id', 'filiere_id', 'niveau', 'coefficient'];
+    protected $fillable = ['matiere_id', 'filiere_id', 'niveau', 'coefficient', 'compte_dans_moyenne'];
+
+    protected $casts = ['compte_dans_moyenne' => 'boolean'];
 
     public function matiere()
     {

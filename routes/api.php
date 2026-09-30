@@ -75,6 +75,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/classes', [ClasseController::class, 'index'])->middleware('permission:classes.voir');
     Route::post('/classes', [ClasseController::class, 'store'])->middleware('permission:classes.gerer');
+    Route::put('/classes/{id}', [ClasseController::class, 'update'])->middleware('permission:classes.gerer');
+    Route::delete('/classes/{id}', [ClasseController::class, 'destroy'])->middleware('permission:classes.gerer');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -88,6 +90,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/matieres', [MatiereController::class, 'index'])->middleware('permission:enseignants.voir');
     Route::post('/matieres', [MatiereController::class, 'store'])->middleware('permission:matieres.gerer');
     Route::post('/filieres', [MatiereController::class, 'storeFiliere'])->middleware('permission:matieres.gerer');
+    Route::put('/matieres/{id}', [MatiereController::class, 'update'])->middleware('permission:matieres.gerer');
+    Route::delete('/matieres/{id}', [MatiereController::class, 'destroy'])->middleware('permission:matieres.gerer');
+    Route::put('/coefficients/{id}', [MatiereController::class, 'updateCoefficient'])->middleware('permission:matieres.gerer');
+    Route::delete('/coefficients/{id}', [MatiereController::class, 'destroyCoefficient'])->middleware('permission:matieres.gerer');
+    Route::put('/filieres/{id}', [MatiereController::class, 'updateFiliere'])->middleware('permission:matieres.gerer');
+    Route::delete('/filieres/{id}', [MatiereController::class, 'destroyFiliere'])->middleware('permission:matieres.gerer');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -128,6 +136,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/periodes', [PeriodeController::class, 'index']);
     Route::post('/periodes', [PeriodeController::class, 'store'])->middleware('permission:periodes.gerer');
+    Route::put('/periodes/{id}', [PeriodeController::class, 'update'])->middleware('permission:periodes.gerer');
+    Route::delete('/periodes/{id}', [PeriodeController::class, 'destroy'])->middleware('permission:periodes.gerer');
 
     Route::get('/mes-affectations', [EvaluationController::class, 'mesAffectations'])->middleware('permission:notes.voir');
     Route::get('/evaluations', [EvaluationController::class, 'index'])->middleware('permission:notes.voir');

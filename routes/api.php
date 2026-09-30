@@ -66,6 +66,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/eleves/{id}', [EleveController::class, 'show'])->middleware('permission:eleves.voir');
     Route::post('/eleves', [EleveController::class, 'store'])->middleware('permission:eleves.creer');
     Route::put('/eleves/{id}', [EleveController::class, 'update'])->middleware('permission:eleves.modifier');
+    Route::delete('/eleves/{id}', [EleveController::class, 'destroy'])->middleware('permission:eleves.modifier');
     Route::post('/eleves/import/analyser', [EleveImportController::class, 'analyser'])->middleware('permission:eleves.importer');
     Route::post('/eleves/import/executer', [EleveImportController::class, 'executer'])->middleware('permission:eleves.importer');
     Route::get('/eleves/import/modele', [EleveImportController::class, 'telechargerModele']);

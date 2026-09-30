@@ -198,6 +198,14 @@ class EleveController extends Controller
             'classe_id' => 'sometimes|exists:classes,id',
             'correction' => 'sometimes|boolean',
             'motif' => 'sometimes|string',
+            // Filiation : un nom vide retire le responsable correspondant.
+            'pere_nom' => 'nullable|string|max:150',
+            'pere_telephone' => 'nullable|string|max:40',
+            'mere_nom' => 'nullable|string|max:150',
+            'mere_telephone' => 'nullable|string|max:40',
+            'tuteur_nom' => 'nullable|string|max:150',
+            'tuteur_telephone' => 'nullable|string|max:40',
+            'tuteur_lien' => 'nullable|string|max:60',
         ]);
 
         $etablissementId = $request->user()->etablissement_id;
@@ -205,12 +213,12 @@ class EleveController extends Controller
 
         $champsIdentitaires = $request->only(['nom', 'prenom', 'date_naissance', 'lieu_naissance']);
 
-        return DB::transaction(function () use ($request, $eleve, $champsIdentitaires) {
+        return DB::transaction(function () use ($request, $eleve, $champsIdentitaires, $etablissementId) {
             $message = null;
 
             if ($request->filled('classe_id')) {
                 $inscriptionActive = $eleve->inscriptionActive;
-                $nouvelleClasse = \App\Models\Classe::findOrFail($request->classe_id);
+                $nouvelleClasse = \App\Models\Classe::where('etablissement_id', $etablissementId)->findOrFail($request->classe_id);
                 $service = new InscriptionService();
 
                 if ($request->boolean('correction')) {
@@ -232,12 +240,65 @@ class EleveController extends Controller
                 $eleve->update($champsIdentitaires);
             }
 
-            $eleve = $eleve->fresh(['inscriptionActive.classe']);
+            // Filiation : mise a jour seulement des responsables envoyes par le formulaire.
+            foreach (['pere', 'mere', 'tuteur'] as $type) {
+                if (! $request->has("{$type}_nom")) {
+                    continue;
+                }
+                $nom = trim((string) $request->input("{$type}_nom"));
+                if ($nom === '') {
+                    $eleve->filiations()->where('type_lien', $type)->delete();
+                    continue;
+                }
+                $eleve->filiations()->updateOrCreate(
+                    ['type_lien' => $type],
+                    [
+                        'nom_complet' => $nom,
+                        'telephone' => $request->input("{$type}_telephone") ?: null,
+                        'lien_avec_eleve' => $type === 'tuteur' ? ($request->input('tuteur_lien') ?: null) : null,
+                    ]
+                );
+            }
+
+            $eleve = $eleve->fresh(['inscriptionActive.classe', 'filiations']);
 
             return $message
                 ? response()->json(['message' => $message, 'eleve' => $eleve])
                 : response()->json($eleve);
         });
+    }
+
+    /**
+     * Suppression d'un eleve saisi par erreur. Refusee des qu'il a un historique (paiement, note,
+     * bulletin) : la caisse et les resultats doivent rester justes. Sinon ses frais sans paiement
+     * sont retires, son inscription annulee (il ne compte plus dans les effectifs) et la fiche
+     * archivee (suppression douce, restaurable en base).
+     */
+    public function destroy(Request $request, $id)
+    {
+        $etablissementId = $request->user()->etablissement_id;
+        $eleve = Eleve::where('etablissement_id', $etablissementId)->findOrFail($id);
+
+        $historique = array_filter([
+            \App\Models\Paiement::where('eleve_id', $eleve->id)->exists() ? 'des paiements' : null,
+            \App\Models\Note::where('eleve_id', $eleve->id)->whereNotNull('valeur')->exists() ? 'des notes' : null,
+            \App\Models\Bulletin::where('eleve_id', $eleve->id)->exists() ? 'des bulletins' : null,
+        ]);
+        if ($historique) {
+            return response()->json([
+                'message' => 'Suppression impossible : cet élève a ' . implode(', ', $historique) . ' enregistrés. '
+                    . 'Pour qu\'il ne soit plus compté, changez plutôt sa classe ou son inscription.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($eleve) {
+            \App\Models\FraisEleve::where('eleve_id', $eleve->id)->delete();
+            \App\Models\Note::where('eleve_id', $eleve->id)->delete();
+            \App\Models\Inscription::where('eleve_id', $eleve->id)->update(['statut' => 'annulee']);
+            $eleve->delete();
+        });
+
+        return response()->json(['message' => "Élève {$eleve->nom} {$eleve->prenom} supprimé."]);
     }
 }
 

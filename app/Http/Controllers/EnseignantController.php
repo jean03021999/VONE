@@ -154,11 +154,78 @@ class EnseignantController extends Controller
         $etablissementId = $request->user()->etablissement_id;
         $enseignant = Enseignant::where('etablissement_id', $etablissementId)->findOrFail($id);
 
+        $request->validate([
+            'nom' => 'sometimes|required|string|max:100',
+            'prenom' => 'sometimes|required|string|max:100',
+            'date_naissance' => 'sometimes|required|date',
+            'lieu_naissance' => 'nullable|string|max:150',
+            'diplome' => 'nullable|string|max:150',
+            'telephone' => 'nullable|string|max:40',
+            'email' => 'nullable|email|max:150',
+        ], ['email.email' => 'Adresse e-mail invalide.', 'date_naissance.date' => 'Date de naissance invalide.']);
+
         $enseignant->update($request->only([
             'nom', 'prenom', 'date_naissance', 'lieu_naissance', 'diplome', 'telephone', 'email',
         ]));
 
         return response()->json($enseignant);
     }
-}
 
+
+    /**
+     * Modifie le contrat actif de l'enseignant (ou en cree un s'il n'en a pas). Le salaire de base
+     * sert de proposition pour les prochains salaires ; les salaires deja saisis ne changent pas.
+     */
+    public function updateContrat(Request $request, $id)
+    {
+        $enseignant = Enseignant::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+        $donnees = $request->validate([
+            'type' => 'required|in:cdi,cdd,vacataire',
+            'date_debut' => 'required|date',
+            'date_fin' => 'nullable|date|after_or_equal:date_debut',
+            'salaire_base' => 'required|numeric|min:0',
+            'taux_horaire_heures_sup' => 'nullable|numeric|min:0',
+        ], ['date_fin.after_or_equal' => 'La date de fin doit être après la date de début.']);
+
+        $contrat = $enseignant->contratActif;
+        if ($contrat) {
+            $contrat->update($donnees);
+        } else {
+            $contrat = Contrat::create($donnees + ['enseignant_id' => $enseignant->id, 'statut' => 'actif']);
+        }
+
+        return response()->json($contrat->fresh());
+    }
+
+    /**
+     * Supprime un enseignant saisi par erreur. Refus s'il a des affectations (classes, emplois du
+     * temps, notes en dependent) ou des salaires. Sinon fiche archivee (suppression douce) et son
+     * eventuel compte de connexion suspendu.
+     */
+    public function destroy(Request $request, $id)
+    {
+        $enseignant = Enseignant::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+
+        $liens = array_filter([
+            ($n = $enseignant->affectations()->count()) ? "{$n} affectation(s)" : null,
+            ($n = \App\Models\Salaire::where('enseignant_id', $enseignant->id)->count()) ? "{$n} salaire(s)" : null,
+        ]);
+        if ($liens) {
+            return response()->json([
+                'message' => "Suppression impossible : {$enseignant->prenom} {$enseignant->nom} a " . implode(' et ', $liens) . '. Retirez d\'abord ses affectations ; un enseignant payé reste dans l\'historique.',
+            ], 422);
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($enseignant) {
+            $enseignant->contrats()->where('statut', 'actif')->update(['statut' => 'termine']);
+            if ($enseignant->user_id) {
+                $compte = \App\Models\User::find($enseignant->user_id);
+                $compte?->update(['statut' => 'suspendu']);
+                $compte?->tokens()->delete();
+            }
+            $enseignant->delete();
+        });
+
+        return response()->json(['message' => "Enseignant {$enseignant->prenom} {$enseignant->nom} supprimé."]);
+    }
+}

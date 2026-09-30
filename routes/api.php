@@ -84,6 +84,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/enseignants/{id}', [EnseignantController::class, 'show'])->middleware('permission:enseignants.voir');
     Route::post('/enseignants', [EnseignantController::class, 'store'])->middleware('permission:enseignants.creer');
     Route::put('/enseignants/{id}', [EnseignantController::class, 'update'])->middleware('permission:enseignants.creer');
+    Route::delete('/enseignants/{id}', [EnseignantController::class, 'destroy'])->middleware('permission:enseignants.creer');
+    Route::put('/enseignants/{id}/contrat', [EnseignantController::class, 'updateContrat'])->middleware('permission:enseignants.contrats.gerer');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -120,6 +122,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/utilisateurs', [UtilisateurController::class, 'index']);
+    Route::post('/utilisateurs', [UtilisateurController::class, 'store']);
+    Route::put('/utilisateurs/{id}', [UtilisateurController::class, 'update']);
+    Route::post('/utilisateurs/{id}/statut', [UtilisateurController::class, 'basculerStatut']);
+    Route::post('/utilisateurs/{id}/mot-de-passe', [UtilisateurController::class, 'reinitialiserMotDePasse']);
     Route::get('/abonnement', [AbonnementController::class, 'show'])->middleware('permission:abonnement.voir');
 });
 
@@ -172,6 +178,7 @@ Route::middleware(['auth:sanctum', 'permission:enseignants.salaires.gerer'])->gr
     Route::post('/salaires', [SalaireController::class, 'store']);
     Route::post('/salaires/{id}/payer', [SalaireController::class, 'payer']);
     Route::delete('/salaires/{id}', [SalaireController::class, 'destroy']);
+    Route::put('/salaires/{id}', [SalaireController::class, 'update']);
 });
 
 // Parametres : profil et securite du compte connecte pour tous ; fiche etablissement et sessions

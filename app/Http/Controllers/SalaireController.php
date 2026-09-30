@@ -144,4 +144,57 @@ class SalaireController extends Controller
         $salaire->delete();
         return response()->json(['message' => 'Salaire supprime.']);
     }
+
+
+    /** Corrige un salaire encore en attente ; un salaire paye ne se modifie plus. */
+    public function update(Request $request, $id)
+    {
+        $etablissementId = $request->user()->etablissement_id;
+        $salaire = Salaire::where('etablissement_id', $etablissementId)->findOrFail($id);
+
+        if ($salaire->statut === 'paye') {
+            return response()->json(['message' => 'Un salaire déjà payé ne peut plus être modifié.'], 422);
+        }
+
+        $request->validate([
+            'mois' => 'required|integer|between:1,12',
+            'annee' => 'required|integer|between:2000,2100',
+            'type_remuneration' => 'required|in:fixe,horaire',
+            'salaire_base' => 'required_if:type_remuneration,fixe|nullable|numeric|min:0',
+            'nb_heures' => 'required_if:type_remuneration,horaire|nullable|numeric|min:0|max:999.99',
+            'taux_horaire' => 'required_if:type_remuneration,horaire|nullable|numeric|min:0',
+            'nb_heures_supp' => 'nullable|numeric|min:0|max:999.99',
+            'taux_heure_supp' => 'nullable|numeric|min:0',
+            'moyen_paiement' => 'required|in:especes,mobile_money,virement,cheque',
+            'observation' => 'nullable|string',
+        ]);
+
+        $doublon = Salaire::where('enseignant_id', $salaire->enseignant_id)
+            ->where('mois', $request->mois)
+            ->where('annee', $request->annee)
+            ->where('id', '!=', $salaire->id)
+            ->exists();
+        if ($doublon) {
+            return response()->json(['message' => 'Un salaire existe deja pour cet enseignant sur ce mois.'], 422);
+        }
+
+        $estFixe = $request->type_remuneration === 'fixe';
+        $salaire->fill([
+            'mois' => $request->mois,
+            'annee' => $request->annee,
+            'type_remuneration' => $request->type_remuneration,
+            'salaire_base' => $estFixe ? $request->salaire_base : null,
+            'nb_heures' => $estFixe ? null : $request->nb_heures,
+            'taux_horaire' => $estFixe ? null : $request->taux_horaire,
+            'nb_heures_supp' => $request->nb_heures_supp ?? 0,
+            'taux_heure_supp' => $request->taux_heure_supp,
+            'moyen_paiement' => $request->moyen_paiement,
+            'observation' => $request->observation,
+        ]);
+        $salaire->montant_net = $salaire->montant_calcule;
+        $salaire->reference = 'SAL-' . $salaire->annee . '-' . $salaire->id;
+        $salaire->save();
+
+        return response()->json($salaire->load(['enseignant:id,nom,prenom,matricule', 'caissier:id,name']));
+    }
 }

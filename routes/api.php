@@ -210,4 +210,9 @@ Route::middleware(['auth:sanctum'])->prefix('caisse')->group(function () {
     Route::get('/sorties', [CaisseController::class, 'sorties'])->middleware('permission:frais.voir');
     Route::post('/depenses', [CaisseController::class, 'storeDepense'])->middleware('permission:frais.paiement.enregistrer');
     Route::post('/depenses/{id}/annuler', [CaisseController::class, 'annulerDepense'])->middleware('permission:frais.paiement.enregistrer');
+    Route::get('/depenses', [CaisseController::class, 'depenses'])->middleware('permission:frais.voir');
+    Route::put('/depenses/{id}', [CaisseController::class, 'updateDepense'])->middleware('permission:frais.paiement.enregistrer');
+    Route::post('/depenses/{id}/justificatifs', [CaisseController::class, 'ajouterJustificatifs'])->middleware('permission:frais.paiement.enregistrer');
+    Route::delete('/justificatifs/{id}', [CaisseController::class, 'supprimerJustificatif'])->middleware('permission:frais.paiement.enregistrer');
 });
+Route::get('/caisse/justificatifs/{id}/fichier', [CaisseController::class, 'fichierJustificatif'])->middleware('signed')->name('justificatifs.fichier');

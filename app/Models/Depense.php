@@ -8,7 +8,7 @@ class Depense extends Model
 {
     protected $fillable = [
         'etablissement_id', 'date_depense', 'categorie', 'libelle', 'montant', 'moyen_paiement',
-        'beneficiaire', 'reference', 'observation', 'enregistre_par', 'annule_le', 'annule_par',
+        'beneficiaire', 'reference', 'numero_piece', 'observation', 'enregistre_par', 'annule_le', 'annule_par',
         'motif_annulation',
     ];
 
@@ -26,6 +26,11 @@ class Depense extends Model
     public function auteur()
     {
         return $this->belongsTo(User::class, 'enregistre_par');
+    }
+
+    public function justificatifs()
+    {
+        return $this->hasMany(JustificatifDepense::class)->orderBy('id');
     }
 
     public function annulateur()

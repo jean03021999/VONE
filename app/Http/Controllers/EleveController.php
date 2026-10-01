@@ -229,16 +229,16 @@ class EleveController extends Controller
 
                 if ($request->boolean('correction')) {
                     $service->corrigerClasse($eleve, $nouvelleClasse);
-                    $message = 'Correction administrative effectuee';
+                    $message = 'Correction administrative effectuée';
                 } elseif (! $inscriptionActive || $nouvelleClasse->session_scolaire_id !== $inscriptionActive->session_scolaire_id) {
                     $service->reinscrire($eleve, $nouvelleClasse);
-                    $message = 'Reinscription effectuee';
+                    $message = 'Réinscription effectuée';
                 } else {
                     if (! $request->filled('motif')) {
                         return response()->json(['message' => 'Le motif est obligatoire pour un changement de classe'], 422);
                     }
                     $service->changerClasse($eleve, $nouvelleClasse, $request->motif);
-                    $message = 'Changement de classe effectue';
+                    $message = 'Changement de classe effectué';
                 }
 
                 // Frais : remplaces par ceux de la grille de la nouvelle classe (sauf deja payes).

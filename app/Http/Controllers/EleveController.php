@@ -240,6 +240,15 @@ class EleveController extends Controller
                     $service->changerClasse($eleve, $nouvelleClasse, $request->motif);
                     $message = 'Changement de classe effectue';
                 }
+
+                // Frais : remplaces par ceux de la grille de la nouvelle classe (sauf deja payes).
+                $r = $service->fraisRealignes;
+                if ($r['remplaces'] > 0) {
+                    $message .= " · frais mis à jour selon la grille de {$nouvelleClasse->nom}";
+                }
+                if ($r['conserves']) {
+                    $message .= ' · à ajuster dans Frais de scolarité : ' . implode(', ', $r['conserves']);
+                }
             }
 
             if (! empty($champsIdentitaires)) {

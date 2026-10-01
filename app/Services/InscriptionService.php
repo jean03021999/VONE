@@ -11,6 +11,9 @@ use Exception;
 
 class InscriptionService
 {
+    /** Resultat de la mise a jour des frais lors du dernier changement de classe (voir FraisService). */
+    public array $fraisRealignes = ['remplaces' => 0, 'retires' => 0, 'conserves' => []];
+
     /**
      * $typeInscription : 'nouvelle' (defaut) ou 'reinscription'. Le second sert aux anciens eleves
      * sans historique dans LAKOLI (ex. premier import Excel d'une ecole pilote) ; pour un eleve deja
@@ -96,6 +99,9 @@ class InscriptionService
             'user_id' => Auth::id(),
         ]);
 
+        // Les frais suivent la grille de la nouvelle classe.
+        $this->fraisRealignes = (new FraisService())->realignerFraisSurClasse($inscriptionActive->fresh());
+
         return $inscriptionActive;
     }
 
@@ -108,6 +114,9 @@ class InscriptionService
         }
 
         $inscriptionActive->update(['classe_id' => $classeCorrigee->id]);
+
+        // Les frais suivent la grille de la classe corrigee.
+        $this->fraisRealignes = (new FraisService())->realignerFraisSurClasse($inscriptionActive->fresh());
 
         return $inscriptionActive;
     }

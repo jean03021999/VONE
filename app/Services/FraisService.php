@@ -91,6 +91,67 @@ class FraisService
     }
 
     /**
+     * Apres un changement (ou une correction) de classe : les frais de l'eleve qui ne viennent pas
+     * de la grille de sa nouvelle classe (y compris les anciens frais sans lien de grille) sont
+     * remplaces par ceux de cette grille. Par prudence, un frais est conserve et signale s'il est
+     * deja paye (meme en partie, ou paiement annule), personnalise (remise) ou si la nouvelle classe
+     * n'a pas de grille active de ce type. Retourne ['remplaces', 'retires', 'conserves' => [libelles]].
+     */
+    public function realignerFraisSurClasse(Inscription $inscription): array
+    {
+        $public = $inscription->type_inscription === 'reinscription' ? 'ancien' : 'nouveau';
+        $grillesClasse = GrilleTarifaire::where('classe_id', $inscription->classe_id)
+            ->where('session_scolaire_id', $inscription->session_scolaire_id)
+            ->where('actif', true)
+            ->whereIn('applicable_a', [$public, 'tous'])
+            ->with('typeFrais')
+            ->get();
+        $idsGrillesClasse = $grillesClasse->pluck('id')->all();
+        // Types compares par nom normalise : « Scolarité » et « Scolarite » sont le meme frais.
+        $normaliser = fn ($nom) => Str::of($nom ?? '')->ascii()->lower()->trim()->toString();
+        $typesCouverts = $grillesClasse->map(fn ($g) => $normaliser($g->typeFrais?->nom))->unique()->all();
+
+        $frais = FraisEleve::where('eleve_id', $inscription->eleve_id)
+            ->where('session_scolaire_id', $inscription->session_scolaire_id)
+            ->with('typeFrais')
+            ->get();
+
+        $retires = 0;
+        $conserves = [];
+        foreach ($frais as $f) {
+            if (in_array($f->grille_tarifaire_id, $idsGrillesClasse, true)) {
+                continue; // deja aligne sur la nouvelle classe
+            }
+            $nomType = $normaliser($f->typeFrais?->nom);
+            if (in_array($nomType, ['inscription', 'reinscription'], true)) {
+                continue; // payes une fois, independants de la classe
+            }
+            $libelle = $f->typeFrais?->nom ?? 'Frais';
+            if (! in_array($nomType, $typesCouverts, true)) {
+                $conserves[] = "{$libelle} (pas de grille pour la nouvelle classe)";
+                continue;
+            }
+            if (Paiement::whereIn('echeance_eleve_id', $f->echeances()->pluck('id'))->exists()) {
+                $conserves[] = "{$libelle} (déjà payé en partie)";
+                continue;
+            }
+            $personnalise = ($f->montant_original !== null && (float) $f->montant_total !== (float) $f->montant_original)
+                || filled($f->motif_personnalisation);
+            if ($personnalise) {
+                $conserves[] = "{$libelle} (montant personnalisé)";
+                continue;
+            }
+            $f->echeances()->delete();
+            $f->delete();
+            $retires++;
+        }
+
+        $crees = $retires > 0 ? $this->appliquerGrillesAInscription($inscription) : 0;
+
+        return ['remplaces' => $crees, 'retires' => $retires, 'conserves' => $conserves];
+    }
+
+    /**
      * Type de frais "Inscription" ou "Reinscription" de l'etablissement (nom compare sans accent ni
      * casse), selon le type d'inscription ('nouvelle' / 'inscription' ou 'reinscription').
      */

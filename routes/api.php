@@ -19,6 +19,7 @@ use App\Http\Controllers\AbonnementController;
 use App\Http\Controllers\StatsPubliquesController;
 use App\Http\Controllers\SalaireController;
 use App\Http\Controllers\ParametresController;
+use App\Http\Controllers\ArreteCaisseController;
 use App\Http\Controllers\CaisseController;
 
 Route::get('/user', function (Request $request) {
@@ -214,5 +215,8 @@ Route::middleware(['auth:sanctum'])->prefix('caisse')->group(function () {
     Route::put('/depenses/{id}', [CaisseController::class, 'updateDepense'])->middleware('permission:frais.paiement.enregistrer');
     Route::post('/depenses/{id}/justificatifs', [CaisseController::class, 'ajouterJustificatifs'])->middleware('permission:frais.paiement.enregistrer');
     Route::delete('/justificatifs/{id}', [CaisseController::class, 'supprimerJustificatif'])->middleware('permission:frais.paiement.enregistrer');
+    Route::get('/arretes', [ArreteCaisseController::class, 'index'])->middleware('permission:frais.voir');
+    Route::get('/arretes/preparer', [ArreteCaisseController::class, 'preparer'])->middleware('permission:frais.voir');
+    Route::post('/arretes', [ArreteCaisseController::class, 'store'])->middleware('permission:frais.paiement.enregistrer');
 });
 Route::get('/caisse/justificatifs/{id}/fichier', [CaisseController::class, 'fichierJustificatif'])->middleware('signed')->name('justificatifs.fichier');

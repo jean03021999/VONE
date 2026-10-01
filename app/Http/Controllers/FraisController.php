@@ -659,7 +659,8 @@ class FraisController extends Controller
         // Echeances de scolarite (et total paye) de tous les eleves en une requete, sans modeles.
         $scolarite = \App\Models\Eleve::echeancesScolariteDe($classes->flatMap->eleves->pluck('id')->unique());
 
-        $resultat = $classes->map(function ($classe) use ($scolarite) {
+        $aujourdhui = today()->toDateString();
+        $resultat = $classes->map(function ($classe) use ($scolarite, $aujourdhui) {
             $montantTotal = 0;
             $montantEncaisse = 0;
             $nombreSoldes = 0;
@@ -678,7 +679,7 @@ class FraisController extends Controller
                 $montantEncaisse += $echeances->sum('montant_paye');
 
                 // Meme calcul que le statut de l'eleve (regle du 10 comprise).
-                $aDuRetard = \App\Models\Eleve::statutDepuis($echeances, $scolarite[$eleve->id]['session_id']) === 'en_retard';
+                $aDuRetard = \App\Models\Eleve::statutDepuis($echeances, $scolarite[$eleve->id]['session_id'], $aujourdhui) === 'en_retard';
                 $estSolde = $echeances->every(fn($e) => $e->montant - $e->montant_paye <= 0);
 
                 if ($aDuRetard) {

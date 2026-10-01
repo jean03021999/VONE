@@ -47,11 +47,12 @@ class EleveController extends Controller
 
         // Statuts de paiement : echeances de scolarite de tous les eleves en une requete.
         $scolarite = Eleve::echeancesScolariteDe($eleves->pluck('id'));
+        $aujourdhui = today()->toDateString();
 
-        $eleves = $eleves->map(function ($eleve) use ($inscriptionReglee, $scolarite) {
+        $eleves = $eleves->map(function ($eleve) use ($inscriptionReglee, $scolarite, $aujourdhui) {
             $echeances = $scolarite[$eleve->id]['echeances'] ?? collect();
             $sessionId = $scolarite[$eleve->id]['session_id'] ?? null;
-            $statutPaiement = Eleve::statutDepuis($echeances, $sessionId);
+            $statutPaiement = Eleve::statutDepuis($echeances, $sessionId, $aujourdhui);
 
             return [
                 'id' => $eleve->id,
@@ -75,7 +76,7 @@ class EleveController extends Controller
                 // 'inscription' | 'reinscription' | null (frais d'inscription pas encore enregistres)
                 'inscription_reglee' => $inscriptionReglee[$eleve->id] ?? null,
                 // { echeance, date_limite, nombre_echeances, montant_du } pour un eleve en retard
-                'retard' => $statutPaiement === 'en_retard' ? Eleve::detailRetardDepuis($echeances, $sessionId) : null,
+                'retard' => $statutPaiement === 'en_retard' ? Eleve::detailRetardDepuis($echeances, $sessionId, $aujourdhui) : null,
             ];
         });
 

@@ -21,6 +21,7 @@ use App\Http\Controllers\SalaireController;
 use App\Http\Controllers\ParametresController;
 use App\Http\Controllers\ArreteCaisseController;
 use App\Http\Controllers\CaisseController;
+use App\Http\Controllers\RelanceController;
 
 Route::get('/user', function (Request $request) {
     $user = $request->user();
@@ -120,6 +121,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/frais/paiements/recent', [FraisController::class, 'paiementsRecent'])->middleware('permission:frais.voir');
     Route::get('/frais/paiements', [FraisController::class, 'paiements'])->middleware('permission:frais.voir');
     Route::get('/frais/stats-par-classe', [FraisController::class, 'statsParClasse'])->middleware('permission:frais.voir');
+    Route::get('/frais/relances', [RelanceController::class, 'index'])->middleware('permission:frais.voir');
+    Route::post('/frais/relances', [RelanceController::class, 'store'])->middleware('permission:frais.paiement.enregistrer');
+    Route::get('/frais/relances/eleve/{eleveId}', [RelanceController::class, 'historique'])->middleware('permission:frais.voir');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {

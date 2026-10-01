@@ -139,15 +139,15 @@ class Eleve extends Model
     }
 
     /** Statut de paiement a partir de echeancesScolariteDe(). */
-    public static function statutDepuis($echeances, ?int $sessionId): string
+    public static function statutDepuis($echeances, ?int $sessionId, ?string $aujourdhui = null): string
     {
-        return self::calculerStatutPaiement($echeances, self::dateLimiteSansPaiement($sessionId));
+        return self::calculerStatutPaiement($echeances, self::dateLimiteSansPaiement($sessionId), $aujourdhui);
     }
 
     /** Detail du retard (voir detailRetard) a partir d'echeances deja chargees. */
-    public static function detailRetardDepuis($echeances, ?int $sessionId): ?array
+    public static function detailRetardDepuis($echeances, ?int $sessionId, ?string $aujourdhui = null): ?array
     {
-        $aujourdhui = today()->toDateString();
+        $aujourdhui ??= today()->toDateString();
         $depassees = $echeances
             ->filter(fn ($e) => substr((string) $e->date_limite, 0, 10) < $aujourdhui && (float) $e->montant - $e->montant_paye > 0)
             ->sortBy(fn ($e) => (string) $e->date_limite)
@@ -250,13 +250,13 @@ class Eleve extends Model
      * decrit plus haut, plus la regle du 10 ($dateLimiteSansPaiement) : aucun paiement apres cette
      * date = en_retard. Partage par l'accesseur et les statistiques par classe.
      */
-    public static function calculerStatutPaiement($echeances, ?string $dateLimiteSansPaiement): string
+    public static function calculerStatutPaiement($echeances, ?string $dateLimiteSansPaiement, ?string $aujourdhui = null): string
     {
         if ($echeances->isEmpty()) {
             return 'aucun_frais';
         }
 
-        $aujourdhui = today()->toDateString();
+        $aujourdhui ??= today()->toDateString();
         $lignes = $echeances->map(fn ($e) => [
             'paye' => $e->montant_paye,
             'reste' => (float) $e->montant - $e->montant_paye,

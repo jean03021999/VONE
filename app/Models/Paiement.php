@@ -26,9 +26,10 @@ class Paiement extends Model
         return $this->belongsTo(User::class, 'annule_par');
     }
 
+    // withTrashed : un doublon supprime (archive) garde ses paiements annules visibles au journal.
     public function eleve()
     {
-        return $this->belongsTo(Eleve::class);
+        return $this->belongsTo(Eleve::class)->withTrashed();
     }
 
     public function caissier()

@@ -57,14 +57,6 @@ Route::post('/auth/reinitialiser-mot-de-passe', [AuthController::class, 'reiniti
 
 Route::get('/stats-publiques', [StatsPubliquesController::class, 'index']);
 
-Route::middleware(['auth:sanctum', 'permission:eleves.voir'])->get('/test-permission', function () {
-    return response()->json(['message' => 'Acces autorise, vous avez la permission eleves.voir']);
-});
-
-Route::middleware(['auth:sanctum', 'permission:paiements.supprimer'])->get('/test-permission-refusee', function () {
-    return response()->json(['message' => 'Ceci ne devrait jamais s afficher']);
-});
-
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/eleves', [EleveController::class, 'index'])->middleware('permission:eleves.voir');
     Route::get('/eleves/{id}', [EleveController::class, 'show'])->middleware('permission:eleves.voir');
@@ -117,6 +109,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/frais/types/{id}', [FraisController::class, 'destroyTypeFrais'])->middleware('permission:frais.creer');
     Route::post('/frais/paiements/annuler', [FraisController::class, 'annulerPaiements'])->middleware('permission:frais.paiement.enregistrer');
     Route::post('/frais/appliquer-inscription', [FraisController::class, 'appliquerInscription'])->middleware('permission:frais.creer');
+    Route::post('/frais/annuler-inscription', [FraisController::class, 'annulerInscription'])->middleware('permission:frais.paiement.enregistrer');
     Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve'])->middleware('permission:frais.voir');
     Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:frais.paiement.enregistrer');
     Route::get('/frais/paiements/recent', [FraisController::class, 'paiementsRecent'])->middleware('permission:frais.voir');

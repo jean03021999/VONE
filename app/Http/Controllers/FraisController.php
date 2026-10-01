@@ -362,6 +362,78 @@ class FraisController extends Controller
         ]);
     }
 
+    /**
+     * Annule une inscription / reinscription faite par erreur, en une operation : les paiements non
+     * annules de ces frais sont annules (comme depuis le journal : restent visibles, barres, auteur
+     * et motif), puis les frais d'inscription et leurs echeances sont retires de l'eleve (les
+     * paiements annules gardent leur ligne dans le journal). Refus si l'eleve a des paiements de
+     * scolarite (ou autres frais) non annules sur la session. Trace dans l'historique de l'eleve.
+     */
+    public function annulerInscription(Request $request)
+    {
+        $request->validate([
+            'frais_eleve_id' => 'required|integer',
+            'motif' => 'required|string|min:3|max:255',
+        ], ['motif.required' => "Indiquez le motif de l'annulation.", 'motif.min' => "Indiquez le motif de l'annulation."]);
+
+        $etablissementId = $request->user()->etablissement_id;
+        $frais = FraisEleve::whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId))
+            ->with(['typeFrais', 'echeances', 'eleve'])
+            ->findOrFail($request->frais_eleve_id);
+
+        $estInscription = fn ($nom) => in_array(\Illuminate\Support\Str::of($nom ?? '')->ascii()->lower()->trim()->toString(), ['inscription', 'reinscription'], true);
+        if (! $estInscription($frais->typeFrais?->nom)) {
+            return response()->json(['message' => "Ces frais ne sont pas des frais d'inscription ou de réinscription."], 422);
+        }
+
+        // Paiements non annules sur les autres frais de la session (scolarite...) : a annuler d'abord.
+        $autresPayes = Paiement::valides()
+            ->where('eleve_id', $frais->eleve_id)
+            ->whereHas('echeanceEleve.fraisEleve', fn ($q) => $q->where('session_scolaire_id', $frais->session_scolaire_id)->where('id', '!=', $frais->id))
+            ->with('echeanceEleve.fraisEleve.typeFrais')
+            ->get()
+            ->filter(fn ($p) => ! $estInscription($p->echeanceEleve?->fraisEleve?->typeFrais?->nom));
+        if ($autresPayes->isNotEmpty()) {
+            return response()->json(['message' => 'Annulez d\'abord les paiements de scolarité dans le Journal de caisse.'], 422);
+        }
+
+        $libelle = $frais->typeFrais->nom;
+        $motif = trim($request->motif);
+        $montantAnnule = DB::transaction(function () use ($frais, $request, $motif, $libelle) {
+            $paiements = Paiement::valides()->whereIn('echeance_eleve_id', $frais->echeances->pluck('id'))->lockForUpdate()->get();
+            if ($paiements->isNotEmpty()) {
+                Paiement::whereIn('id', $paiements->pluck('id'))->update([
+                    'annule_le' => now(),
+                    'annule_par' => $request->user()->id,
+                    'motif_annulation' => $motif,
+                ]);
+            }
+            $montant = (float) $paiements->sum('montant');
+
+            // Les paiements (annules) restent : leur lien vers l'echeance passe a NULL.
+            $frais->echeances()->delete();
+            $frais->delete();
+
+            \App\Models\HistoriqueEleve::create([
+                'eleve_id' => $frais->eleve_id,
+                'action' => 'annulation_inscription',
+                'description' => 'Annulation de ' . (str_starts_with(\Illuminate\Support\Str::of($libelle)->ascii()->lower()->toString(), 're') ? 'la réinscription' : "l'inscription")
+                    . ($paiements->count() ? ' — ' . $paiements->count() . ' paiement(s) annulé(s)' : ''),
+                'montant' => $montant,
+                'motif' => $motif,
+                'user_id' => $request->user()->id,
+            ]);
+
+            return $montant;
+        });
+
+        return response()->json([
+            'message' => "{$libelle} annulée pour {$frais->eleve->nom} {$frais->eleve->prenom}"
+                . ($montantAnnule > 0 ? ' : ' . number_format($montantAnnule, 0, ',', ' ') . ' GNF retirés de la caisse.' : '.'),
+            'montant_annule' => $montantAnnule,
+        ]);
+    }
+
     public function synchroniserGrille(Request $request, $id)
     {
         $grille = GrilleTarifaire::where('etablissement_id', $request->user()->etablissement_id)

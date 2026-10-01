@@ -32,13 +32,15 @@ class EleveController extends Controller
 
         $eleves = $query->get();
 
-        // Eleve reellement inscrit = frais d'inscription ou de reinscription enregistres sur la
-        // session active (l'inscription "active" seule peut venir d'un import, sans aucun frais).
+        // Eleve reellement inscrit = au moins un paiement NON annule sur ses frais d'inscription ou de
+        // reinscription de la session active (ni l'inscription "active" seule, venue d'un import, ni
+        // des frais dont le paiement a ete annule ne suffisent).
         $inscriptionReglee = \App\Models\FraisEleve::whereIn('eleve_id', $eleves->pluck('id'))
             ->whereIn('session_scolaire_id', \App\Models\SessionScolaire::where('etablissement_id', $etablissementId)
                 ->where('est_active', true)
                 ->pluck('id'))
             ->whereHas('typeFrais', fn ($q) => $q->where('nom', 'ILIKE', 'inscription')->orWhere('nom', 'ILIKE', 'r_inscription'))
+            ->whereHas('echeances.paiements')
             ->with('typeFrais:id,nom')
             ->get()
             ->mapWithKeys(fn ($f) => [
@@ -124,6 +126,17 @@ class EleveController extends Controller
 
         // Statut global (meme calcul que la liste) pour la fiche et le releve imprime.
         $eleve->append('statut_paiement');
+
+        // Historique des operations sensibles (annulation d'inscription...).
+        $eleve->setAttribute('historique', \App\Models\HistoriqueEleve::where('eleve_id', $eleve->id)
+            ->with('auteur:id,name')->orderByDesc('created_at')->get()
+            ->map(fn ($h) => [
+                'date' => $h->created_at?->toDateTimeString(),
+                'description' => $h->description,
+                'montant' => $h->montant,
+                'motif' => $h->motif,
+                'par' => $h->auteur?->name,
+            ]));
 
         return response()->json($eleve);
     }
@@ -294,8 +307,14 @@ class EleveController extends Controller
         $etablissementId = $request->user()->etablissement_id;
         $eleve = Eleve::where('etablissement_id', $etablissementId)->findOrFail($id);
 
+        // Seuls les paiements NON annules bloquent : un doublon dont les paiements ont ete annules au
+        // journal peut etre supprime (ses paiements annules restent visibles au journal).
+        if (\App\Models\Paiement::valides()->where('eleve_id', $eleve->id)->exists()) {
+            return response()->json([
+                'message' => 'Cet élève a des paiements actifs. Annulez-les d\'abord dans le Journal de caisse pour pouvoir le supprimer.',
+            ], 422);
+        }
         $historique = array_filter([
-            \App\Models\Paiement::where('eleve_id', $eleve->id)->exists() ? 'des paiements' : null,
             \App\Models\Note::where('eleve_id', $eleve->id)->whereNotNull('valeur')->exists() ? 'des notes' : null,
             \App\Models\Bulletin::where('eleve_id', $eleve->id)->exists() ? 'des bulletins' : null,
         ]);

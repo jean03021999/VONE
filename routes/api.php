@@ -42,7 +42,7 @@ Route::get('/user', function (Request $request) {
         // Fiche complete : en-tete de l'application et des documents imprimes (logo, coordonnees,
         // agrement, slogan) et alerte de capacite d'accueil.
         'etablissement' => $user->etablissement ? $user->etablissement->only([
-            'id', 'nom', 'ville', 'quartier', 'adresse', 'telephone', 'telephone_secondaire', 'email',
+            'id', 'nom', 'ville', 'quartier', 'adresse', 'telephone', 'telephone_secondaire', 'whatsapp_relance', 'email',
             'agrement', 'slogan', 'capacite_accueil', 'logo_url',
         ]) : null,
         'session' => $session?->libelle,

@@ -179,6 +179,7 @@ Route::middleware(['auth:sanctum', 'permission:enseignants.salaires.gerer'])->gr
     Route::post('/salaires/{id}/payer', [SalaireController::class, 'payer']);
     Route::delete('/salaires/{id}', [SalaireController::class, 'destroy']);
     Route::put('/salaires/{id}', [SalaireController::class, 'update']);
+    Route::post('/salaires/{id}/annuler', [SalaireController::class, 'annuler']);
 });
 
 // Parametres : profil et securite du compte connecte pour tous ; fiche etablissement et sessions

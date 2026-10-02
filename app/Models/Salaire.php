@@ -10,12 +10,14 @@ class Salaire extends Model
         'enseignant_id', 'etablissement_id', 'mois', 'annee', 'type_remuneration',
         'salaire_base', 'nb_heures', 'taux_horaire', 'nb_heures_supp', 'taux_heure_supp',
         'montant_net', 'moyen_paiement', 'date_paiement', 'statut', 'caissier_id', 'reference', 'observation',
+        'annule_le', 'annule_par', 'motif_annulation',
     ];
 
     protected $casts = [
         'mois' => 'integer',
         'annee' => 'integer',
         'date_paiement' => 'date:Y-m-d',
+        'annule_le' => 'datetime',
     ];
 
     public function enseignant()
@@ -26,6 +28,11 @@ class Salaire extends Model
     public function caissier()
     {
         return $this->belongsTo(User::class, 'caissier_id');
+    }
+
+    public function annulateur()
+    {
+        return $this->belongsTo(User::class, 'annule_par');
     }
 
     public function etablissement()

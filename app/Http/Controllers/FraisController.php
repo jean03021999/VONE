@@ -783,8 +783,8 @@ class FraisController extends Controller
             'echeance_eleve_id' => 'required|exists:echeances_eleves,id',
             'montant' => 'required|numeric|min:1',
             'moyen_paiement' => 'required|in:especes,mobile_money,virement,cheque',
-            'date_paiement' => 'required|date',
-        ]);
+            'date_paiement' => 'required|date|before_or_equal:today',
+        ], ['date_paiement.before_or_equal' => 'La date du paiement ne peut pas être dans le futur.']);
 
         $etablissementId = $request->user()->etablissement_id;
 

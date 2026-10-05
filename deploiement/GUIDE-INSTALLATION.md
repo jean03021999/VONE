@@ -49,7 +49,13 @@ pendant un enregistrement peut abîmer les données.
    - le mot de passe du compte `postgres` (étape 1) ;
    - le nom de l'établissement, la ville et le téléphone ;
    - le nom, l'e-mail et le mot de passe **du fondateur**. C'est le premier compte : il crée ensuite
-     les autres.
+     les autres ;
+   - les **cycles** de l'école : tapez les numéros séparés par des virgules (par exemple `1,2` pour
+     Primaire et Collège), ou Entrée pour tous ;
+   - l'**année scolaire en cours** : Entrée accepte l'année proposée (par exemple 2026 pour 2026-2027) ;
+   - **créer les classes courantes** : Entrée (oui). Les classes habituelles de ces cycles sont créées
+     (Petite Section… 6ème Année, 7ème… 10ème Année, 11ème/12ème Année par série, Terminales).
+     Elles pourront être renommées ou supprimées ensuite.
 
 À la fin, le script affiche l'adresse de LAKOLI : **http://127.0.0.1:8080**.
 
@@ -65,17 +71,30 @@ bloquée une minute.
 4. Menu > **Préférences** : cochez **Démarrer Laragon avec Windows** et **Tout démarrer
    automatiquement**. Ainsi, LAKOLI redémarre tout seul après une coupure.
 
-## 4. Première connexion
+## 4. Premiers pas : qui fait quoi, dans quel ordre
 
-1. Sur le PC, ouvrez Chrome ou Edge à l'adresse **http://127.0.0.1:8080**.
-2. Choisissez le profil **Fondateur**, puis saisissez l'e-mail et le mot de passe de l'étape 2.
-3. Dans **Paramètres** :
+L'installation a déjà créé **l'année scolaire en cours (active)** et **les classes courantes**. Chaque
+compte ne voit que les menus de son rôle : le fondateur ne gère ni les classes ni les frais. Suivez cet
+ordre.
+
+1. **Fondateur** : ouvrez Chrome ou Edge à l'adresse **http://127.0.0.1:8080**, choisissez le profil
+   **Fondateur**, puis saisissez l'e-mail et le mot de passe de l'étape 2. Dans **Paramètres** :
    - **Mon établissement** : complétez la fiche (logo, adresse, agrément, slogan, WhatsApp de la comptabilité) ;
-   - **Session scolaire** : créez l'année scolaire en cours ;
-   - **Utilisateurs & rôles** : créez les comptes du directeur, du comptable, etc. Un mot de passe provisoire
-     s'affiche pour chacun : transmettez-le à la personne.
-4. Créez ensuite les classes, les frais, puis inscrivez les élèves.
+   - **Session scolaire** : vérifiez que l'année en cours est bien active ;
+   - **Utilisateurs & rôles** : créez au moins un compte **Directeur** ou **Proviseur**, et un compte
+     **Comptable**. Un mot de passe provisoire s'affiche pour chacun : transmettez-le à la personne.
+2. **Directeur ou Proviseur** : menu **Gestion des Classes** ; renommez, supprimez ou ajoutez des
+   classes selon l'école (par exemple « 7ème Année A » et « 7ème Année B »).
+3. **Comptable** : menu **Frais de Scolarité** ; créez les types de frais (Scolarité, Inscription…), puis une grille
+   tarifaire par classe ; inscrivez ensuite les élèves (**Gestion des Élèves**) et enregistrez les paiements.
 
+| Rôle | Peut faire |
+|---|---|
+| Fondateur | Paramètres (établissement, année scolaire, comptes), statistiques financières, consultation |
+| Directeur | Classes, matières, emploi du temps, notes et bulletins (validation) |
+| Proviseur | Comme le directeur, plus enseignants, salaires et frais |
+| Censeur | Classes, emploi du temps, saisie des notes |
+| Comptable | Élèves (inscription), frais, paiements, salaires |
 ---
 
 ## 5. Sécurité : indispensable sur un poste partagé

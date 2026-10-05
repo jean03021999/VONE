@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Classe;
 use App\Models\Etablissement;
 use App\Models\Role;
+use App\Models\SessionScolaire;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -15,8 +17,9 @@ use Illuminate\Support\Str;
 /**
  * Installation sur site (ecole pilote) : sur une base neuve (php artisan migrate), cree le catalogue
  * des permissions, les roles modeles, puis l'etablissement avec ses propres roles (copies des
- * modeles) et le compte du fondateur. Les autres comptes (directeur, comptable...) se creent ensuite
- * dans l'application : Parametres > Utilisateurs.
+ * modeles), le compte du fondateur, l'annee scolaire en cours (active) et, au choix, les classes
+ * courantes des cycles de l'ecole (systeme guineen). Les autres comptes (directeur, comptable...) se
+ * creent ensuite dans l'application : Parametres > Utilisateurs & roles.
  */
 class InstallerEtablissement extends Command
 {
@@ -26,9 +29,28 @@ class InstallerEtablissement extends Command
         {--telephone= : Telephone de l\'etablissement}
         {--fondateur= : Nom complet du fondateur}
         {--email= : E-mail de connexion du fondateur}
-        {--telephone-fondateur= : Telephone du fondateur (facultatif, sert aussi d\'identifiant)}';
+        {--telephone-fondateur= : Telephone du fondateur (facultatif, sert aussi d\'identifiant)}
+        {--cycles= : Cycles de l\'ecole, separes par des virgules (maternelle,primaire,college,lycee)}
+        {--annee= : Annee de debut de l\'annee scolaire en cours (ex. 2026 pour 2026-2027)}
+        {--sans-classes : Ne pas creer les classes courantes}';
 
-    protected $description = "Cree l'etablissement, ses roles et le compte du fondateur sur une base neuve.";
+    protected $description = "Cree l'etablissement, ses roles, le compte du fondateur, l'annee scolaire et les classes sur une base neuve.";
+
+    // Classes courantes par cycle (systeme guineen), dans l'ordre pedagogique.
+    private const CLASSES = [
+        'maternelle' => ['Petite Section', 'Moyenne Section', 'Grande Section'],
+        'primaire' => ['1ère Année', '2ème Année', '3ème Année', '4ème Année', '5ème Année', '6ème Année'],
+        'college' => ['7ème Année', '8ème Année', '9ème Année', '10ème Année'],
+        'lycee' => [
+            '11ème Année - Série Scientifique', '11ème Année - Série Littéraire',
+            '12ème Année - Série Scientifique', '12ème Année - Série Littéraire',
+            'Terminale - Sciences Mathématiques', 'Terminale - Sciences Expérimentales', 'Terminale - Sciences Sociales',
+        ],
+    ];
+
+    private const LIBELLES_CYCLES = [
+        'maternelle' => 'Maternelle', 'primaire' => 'Primaire', 'college' => 'Collège', 'lycee' => 'Lycée',
+    ];
 
     public function handle(): int
     {
@@ -54,6 +76,34 @@ class InstallerEtablissement extends Command
             return self::FAILURE;
         }
 
+        // Cycles de l'ecole et annee scolaire en cours.
+        if ($this->option('cycles')) {
+            $cycles = array_values(array_intersect(array_keys(self::CLASSES), array_map('trim', explode(',', $this->option('cycles')))));
+        } else {
+            $choix = $this->choice(
+                "Cycles de l'école (numéros séparés par des virgules)",
+                array_values(self::LIBELLES_CYCLES),
+                '0,1,2,3',
+                null,
+                true
+            );
+            $cycles = array_keys(array_intersect(self::LIBELLES_CYCLES, $choix));
+        }
+        if (! $cycles) {
+            $this->error('Choisissez au moins un cycle.');
+            return self::FAILURE;
+        }
+
+        // Annee scolaire : a partir d'aout, celle qui commence ; avant, celle qui se termine.
+        $anneeParDefaut = now()->month >= 8 ? now()->year : now()->year - 1;
+        $annee = (int) ($this->option('annee') ?: $this->ask('Année scolaire en cours : année de début', (string) $anneeParDefaut));
+        if ($annee < 2000 || $annee > 2100) {
+            $this->error('Année scolaire invalide.');
+            return self::FAILURE;
+        }
+        $creerClasses = ! $this->option('sans-classes')
+            && ($this->option('cycles') || $this->confirm('Créer les classes courantes de ces cycles ? (modifiables ensuite)', true));
+
         // Catalogue des permissions et roles modeles (idempotent).
         $this->call('db:seed', ['--class' => PermissionSeeder::class, '--force' => true]);
         $this->call('db:seed', ['--class' => RolePermissionSeeder::class, '--force' => true]);
@@ -64,15 +114,40 @@ class InstallerEtablissement extends Command
             return self::FAILURE;
         }
 
-        $etablissement = DB::transaction(function () use ($nom, $ville, $telephone, $fondateur, $email, $telFondateur, $motDePasse, $modeles) {
+        $etablissement = DB::transaction(function () use ($nom, $ville, $telephone, $fondateur, $email, $telFondateur, $motDePasse, $modeles, $cycles, $annee, $creerClasses) {
             $etablissement = Etablissement::create([
                 'nom' => trim($nom),
                 'code' => $this->codeUnique($nom),
                 'type' => 'ecole_privee',
                 'ville' => $ville ?: null,
                 'telephone' => $telephone ?: null,
+                'cycles' => $cycles,
                 'statut' => 'actif',
             ]);
+
+            // Annee scolaire en cours, active d'emblee (aucune autre session sur une base neuve) :
+            // la creation des classes et les inscriptions l'exigent.
+            $session = SessionScolaire::create([
+                'etablissement_id' => $etablissement->id,
+                'libelle' => $annee . '-' . ($annee + 1),
+                'date_debut' => "{$annee}-10-01",
+                'date_fin' => ($annee + 1) . '-07-31',
+                'statut' => 'en_cours',
+                'est_active' => true,
+            ]);
+
+            if ($creerClasses) {
+                foreach ($cycles as $cycle) {
+                    foreach (self::CLASSES[$cycle] as $classe) {
+                        Classe::create([
+                            'etablissement_id' => $etablissement->id,
+                            'session_scolaire_id' => $session->id,
+                            'nom' => $classe,
+                            'niveau' => $classe,
+                        ]);
+                    }
+                }
+            }
 
             // Roles propres a l'etablissement, copies des modeles avec leurs permissions.
             $roles = [];
@@ -103,7 +178,9 @@ class InstallerEtablissement extends Command
         $this->newLine();
         $this->info("Établissement « {$etablissement->nom} » créé (code {$etablissement->code}).");
         $this->line("Compte fondateur : {$email} — connexion avec le profil « Fondateur ».");
-        $this->line('Créez ensuite la session scolaire et les autres comptes dans Paramètres (Session scolaire, Utilisateurs & rôles).');
+        $nbClasses = Classe::where('etablissement_id', $etablissement->id)->count();
+        $this->line("Année scolaire {$annee}-" . ($annee + 1) . " active ; {$nbClasses} classe(s) créée(s).");
+        $this->line('Ensuite : Paramètres > Utilisateurs & rôles pour créer les comptes (directeur ou proviseur, comptable...).');
 
         return self::SUCCESS;
     }

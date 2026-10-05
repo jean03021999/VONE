@@ -43,7 +43,7 @@ class ClasseController extends Controller
             ->first();
 
         if (!$sessionActive) {
-            return response()->json(['message' => 'Aucune session scolaire active. Contactez le support.'], 422);
+            return response()->json(['message' => "Aucune année scolaire active. Créez-la et activez-la d'abord : Paramètres > Session scolaire."], 422);
         }
 
         $classe = Classe::create([

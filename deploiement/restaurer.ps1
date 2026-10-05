@@ -10,7 +10,9 @@
 param(
     [string]$Fichier,
     [string]$App = "C:\laragon\www\lakoli",
-    [string]$Dossier = "C:\LAKOLI-Sauvegardes"
+    [string]$Dossier = "C:\LAKOLI-Sauvegardes",
+    # Saute la question « Tapez OUI » (scripts d'essai uniquement).
+    [switch]$Confirmer
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,10 +25,10 @@ if (-not $Fichier -or -not (Test-Path $Fichier)) { Write-Host "Aucune sauvegarde
 
 Write-Host "Sauvegarde à restaurer : $Fichier ($((Get-Item $Fichier).LastWriteTime))"
 Write-Host "Toutes les données actuelles de LAKOLI seront remplacées." -ForegroundColor Yellow
-if ((Read-Host "Tapez OUI pour continuer") -ne "OUI") { Write-Host "Annulé."; exit 0 }
+if (-not $Confirmer -and (Read-Host "Tapez OUI pour continuer") -ne "OUI") { Write-Host "Annulé."; exit 0 }
 
 Write-Host "Sauvegarde de l'état actuel..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "sauvegarde.ps1") -App $App
+& powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "sauvegarde.ps1") -App $App -Destination $Dossier
 if ($LASTEXITCODE -ne 0) { Write-Host "La sauvegarde de sécurité a échoué : restauration annulée." -ForegroundColor Red; exit 1 }
 
 $config = @{}

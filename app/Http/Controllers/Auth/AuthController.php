@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\OtpCode;
 use App\Models\AppareilConfiance;
+use App\Services\VerificationConnexion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -50,9 +51,9 @@ class AuthController extends Controller
             }
         }
 
-        // MODE DEVELOPPEMENT : OTP desactive en local
-        // Retirer ce bloc avant la mise en production
-        if (app()->environment('local')) {
+        // Sans code de verification : poste de developpement, ou installation sur un seul poste
+        // (OTP_ACTIF=false, admis seulement en acces local : App\Services\VerificationConnexion).
+        if (! VerificationConnexion::otpRequis($request)) {
             $token = $user->createToken('auth-token')->plainTextToken;
             return response()->json([
                 'message' => 'Connexion reussie',

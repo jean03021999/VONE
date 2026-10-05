@@ -1,8 +1,9 @@
 # Installer LAKOLI dans une école
 
-Ce guide installe LAKOLI sur **un PC de l'école qui sert de serveur**. Ce PC garde toutes les
-données. On peut utiliser LAKOLI directement sur ce PC, ou depuis d'autres ordinateurs (direction,
-comptabilité…) connectés au même réseau (câble ou Wi-Fi), avec un simple navigateur.
+Ce guide installe LAKOLI sur **un seul PC de l'école**, qui garde toutes les données. LAKOLI
+s'utilise **uniquement sur ce PC** (adresse http://127.0.0.1:8080). Chaque utilisateur (fondateur,
+directeur, comptable…) s'y connecte avec son propre compte. Les autres ordinateurs du réseau ne
+peuvent pas l'ouvrir (voir section 6).
 
 Durée : environ 1 heure. Internet n'est nécessaire que pour télécharger les logiciels de l'étape 1.
 
@@ -15,7 +16,7 @@ Durée : environ 1 heure. Internet n'est nécessaire que pour télécharger les 
 - Les installateurs de l'étape 1, déjà téléchargés, sur la même clé.
 - **Une deuxième clé USB** (ou un disque externe), qui restera à l'école pour les sauvegardes.
 
-**Le PC serveur** : Windows 10 ou 11 64 bits, 8 Go de mémoire conseillés. Il doit être allumé
+**Le PC** : Windows 10 ou 11 64 bits, 8 Go de mémoire conseillés. Il doit être allumé
 pendant les heures de travail. **Un onduleur est fortement conseillé** : une coupure de courant
 pendant un enregistrement peut abîmer les données.
 
@@ -50,7 +51,11 @@ pendant un enregistrement peut abîmer les données.
    - le nom, l'e-mail et le mot de passe **du fondateur**. C'est le premier compte : il crée ensuite
      les autres.
 
-À la fin, le script affiche les **adresses de LAKOLI**. Notez-les.
+À la fin, le script affiche l'adresse de LAKOLI : **http://127.0.0.1:8080**.
+
+Avec cette installation, la connexion se fait avec **l'e-mail et le mot de passe**, sans code de
+vérification : l'accès est limité à ce PC. Après 5 essais erronés en une minute, la connexion est
+bloquée une minute.
 
 ## 3. Démarrer le serveur (Laragon)
 
@@ -62,39 +67,57 @@ pendant un enregistrement peut abîmer les données.
 
 ## 4. Première connexion
 
-1. Sur le PC serveur, ouvrez Chrome ou Edge à l'adresse **http://127.0.0.1:8080**.
+1. Sur le PC, ouvrez Chrome ou Edge à l'adresse **http://127.0.0.1:8080**.
 2. Choisissez le profil **Fondateur**, puis saisissez l'e-mail et le mot de passe de l'étape 2.
 3. Dans **Paramètres** :
-   - **Établissement** : complétez la fiche (logo, adresse, agrément, slogan, WhatsApp de la comptabilité) ;
-   - **Sessions** : créez l'année scolaire en cours ;
-   - **Utilisateurs** : créez les comptes du directeur, du comptable, etc. Un mot de passe provisoire
+   - **Mon établissement** : complétez la fiche (logo, adresse, agrément, slogan, WhatsApp de la comptabilité) ;
+   - **Session scolaire** : créez l'année scolaire en cours ;
+   - **Utilisateurs & rôles** : créez les comptes du directeur, du comptable, etc. Un mot de passe provisoire
      s'affiche pour chacun : transmettez-le à la personne.
 4. Créez ensuite les classes, les frais, puis inscrivez les élèves.
 
 ---
 
-## 5. Utiliser LAKOLI depuis d'autres ordinateurs
+## 5. Sécurité : indispensable sur un poste partagé
 
-1. Les ordinateurs doivent être sur **le même réseau** (même Wi-Fi ou même routeur) que le PC serveur.
-2. Sur le PC serveur, le réseau doit être déclaré **privé** : Paramètres Windows > Réseau et Internet
-   > (votre réseau) > Type de profil réseau : **Privé**. Sinon, le pare-feu bloque les autres postes.
-3. Sur chaque autre ordinateur, ouvrez l'adresse affichée à la fin de l'installation, par exemple
-   **http://192.168.1.10:8080**. Ajoutez-la aux favoris.
-4. **Adresse fixe conseillée** : l'adresse du PC serveur peut changer après un redémarrage du routeur.
-   Pour l'éviter, réservez-lui une adresse dans la configuration du routeur (« réservation DHCP »).
-   Pour retrouver l'adresse actuelle : sur le PC serveur, tapez `ipconfig` dans PowerShell, ligne
-   « Adresse IPv4 ».
+Sans code de vérification, **le mot de passe est la seule protection** des comptes. Tout le monde
+utilise le même PC : il faut donc protéger aussi l'accès à Windows.
+
+1. **Un mot de passe fort pour chaque compte, en particulier celui du comptable**, qui enregistre
+   les paiements et les salaires :
+   - au moins 12 caractères, en mélangeant majuscules, minuscules, chiffres et un symbole ;
+   - ni date de naissance, ni nom de l'école, ni « 123456 » ;
+   - propre à LAKOLI (pas le même que pour la messagerie ou WhatsApp) ;
+   - connu de la seule personne concernée : chacun change le mot de passe provisoire à sa première
+     connexion (Paramètres > Sécurité).
+2. **Protéger la session Windows du PC par un mot de passe** : Paramètres Windows > Comptes >
+   Options de connexion > Mot de passe (ou code PIN).
+3. **Verrouiller le PC en le quittant** : touches **Windows + L**. Réglez aussi le verrouillage
+   automatique : Paramètres Windows > Personnalisation > Écran de verrouillage > Écran de veille,
+   avec « À la reprise, afficher l'écran d'ouverture de session » coché (5 minutes, par exemple).
+4. **Se déconnecter de LAKOLI** en fin de travail, surtout avant de laisser le PC à un collègue.
+
+## 6. Accès depuis d'autres ordinateurs (plus tard)
+
+Cette installation n'accepte que les connexions venues du PC lui-même. Le serveur n'écoute que sur
+127.0.0.1. Si on l'ouvre au réseau sans autre changement, LAKOLI réactive de lui-même le code de
+vérification et le signale dans son journal.
+
+Pour ouvrir LAKOLI aux autres postes de l'école, il faudra, avec l'équipe LAKOLI :
+1. configurer l'envoi d'e-mails dans `C:\laragon\www\lakoli\.env` (`MAIL_…`), pour que le code de
+   vérification parvienne aux utilisateurs ;
+2. repasser `OTP_ACTIF=true` et mettre l'adresse réseau du PC dans `APP_URL` ;
+3. faire écouter Apache sur le réseau et ouvrir le port 8080 dans le pare-feu.
 
 ---
-
-## 6. Sauvegardes
+## 7. Sauvegardes
 
 - **Automatiques** chaque jour à 18 h, dans `C:\LAKOLI-Sauvegardes`. Elles sont gardées 30 jours.
   Si le PC était éteint à 18 h, la sauvegarde se fait au démarrage suivant.
 - **Hors du PC (indispensable)** : si le PC tombe en panne ou est volé, les sauvegardes en
   `C:\LAKOLI-Sauvegardes` sont perdues avec lui. Pour s'en protéger :
   1. Créez à la racine de la clé USB de sauvegarde un dossier nommé exactement **`LAKOLI-SAUVEGARDES`**.
-  2. Laissez la clé branchée sur le PC serveur. Chaque sauvegarde y est aussi copiée (10 dernières gardées).
+  2. Laissez la clé branchée sur le PC. Chaque sauvegarde y est aussi copiée (10 dernières gardées).
   3. Idéalement, une fois par semaine, emportez la clé hors de l'école et échangez-la avec une seconde clé.
 - **Vérifier** : le fichier `C:\LAKOLI-Sauvegardes\journal.txt` indique « OK » pour chaque sauvegarde.
 - **Sauvegarder à la main** (par exemple avant une opération importante) : dans PowerShell (administrateur),
@@ -117,9 +140,9 @@ Cette opération remplace toutes les données actuelles. L'état actuel est sauv
 
 ---
 
-## 7. Installer une nouvelle version
+## 8. Installer une nouvelle version
 
-1. Préparez un nouveau paquet (`deploiement\preparer-paquet.ps1`), puis extrayez-le sur le PC serveur.
+1. Préparez un nouveau paquet (`deploiement\preparer-paquet.ps1`), puis extrayez-le sur le PC.
 2. Dans PowerShell (administrateur), depuis le dossier extrait :
    ```
    powershell -ExecutionPolicy Bypass -File installer.ps1 -MiseAJour
@@ -130,12 +153,14 @@ Cette opération remplace toutes les données actuelles. L'état actuel est sauv
 
 ---
 
-## 8. En cas de problème
+## 9. En cas de problème
 
 | Problème | Solution |
 |---|---|
-| La page ne s'ouvre pas sur le PC serveur | Laragon est-il démarré ? Cliquez **Tout démarrer**. |
+| La page ne s'ouvre pas | Laragon est-il démarré ? Cliquez **Tout démarrer**. |
 | Erreur « 500 » ou page blanche | Laragon > PHP > Version : **php-8.5.8-nts-x64** doit être choisi, puis Arrêter / Tout démarrer. |
-| Les autres postes n'accèdent pas à LAKOLI | Réseau du PC serveur en **Privé** (section 5) ; même Wi-Fi ; adresse IP à jour (`ipconfig`). |
-| Mot de passe oublié (un utilisateur) | Le fondateur ou le directeur le réinitialise dans Paramètres > Utilisateurs. |
+| « Trop de tentatives » à la connexion | Attendez une minute, puis ressaisissez le mot de passe sans erreur. |
+| Les autres ordinateurs n'ouvrent pas LAKOLI | Normal avec cette installation : voir section 6. |
+| Un code de vérification est demandé | L'adresse ou l'accès n'est plus local : voir section 6 et le journal. |
+| Mot de passe oublié (un utilisateur) | Le fondateur ou le directeur le réinitialise dans Paramètres > Utilisateurs & rôles. |
 | Détail technique d'une erreur | Journal : `C:\laragon\www\lakoli\storage\logs\` (fichier du jour). |

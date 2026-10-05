@@ -49,11 +49,14 @@ Route::get('/user', function (Request $request) {
     ]);
 })->middleware('auth:sanctum');
 
-Route::post('/auth/login', [AuthController::class, 'login']);
-Route::post('/auth/verifier-otp', [AuthController::class, 'verifierOtp']);
-Route::post('/auth/renvoyer-otp', [AuthController::class, 'renvoyerOtp']);
-Route::post('/auth/mot-de-passe-oublie', [AuthController::class, 'motDePasseOublie']);
-Route::post('/auth/reinitialiser-mot-de-passe', [AuthController::class, 'reinitialiserMotDePasse']);
+// Authentification : tentatives limitees (limiteur « connexion », AppServiceProvider).
+Route::middleware('throttle:connexion')->group(function () {
+    Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::post('/auth/verifier-otp', [AuthController::class, 'verifierOtp']);
+    Route::post('/auth/renvoyer-otp', [AuthController::class, 'renvoyerOtp']);
+    Route::post('/auth/mot-de-passe-oublie', [AuthController::class, 'motDePasseOublie']);
+    Route::post('/auth/reinitialiser-mot-de-passe', [AuthController::class, 'reinitialiserMotDePasse']);
+});
 
 Route::get('/stats-publiques', [StatsPubliquesController::class, 'index']);
 

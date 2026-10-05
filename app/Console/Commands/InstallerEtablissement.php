@@ -103,7 +103,7 @@ class InstallerEtablissement extends Command
         $this->newLine();
         $this->info("Établissement « {$etablissement->nom} » créé (code {$etablissement->code}).");
         $this->line("Compte fondateur : {$email} — connexion avec le profil « Fondateur ».");
-        $this->line('Créez ensuite les autres comptes dans Paramètres > Utilisateurs, puis la session scolaire.');
+        $this->line('Créez ensuite la session scolaire et les autres comptes dans Paramètres (Session scolaire, Utilisateurs & rôles).');
 
         return self::SUCCESS;
     }

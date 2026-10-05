@@ -65,6 +65,7 @@ if ($MiseAJour) {
 # --- 1. PHP et application -----------------------------------------------------------------
 Etape "PHP 8.5"
 if (-not (Test-Path $php)) {
+    New-Item -ItemType Directory -Force (Split-Path $dossierPhp) | Out-Null
     Copy-Item (Join-Path $paquet $versionPhp) $dossierPhp -Recurse
 }
 & $php -r "exit(extension_loaded('pdo_pgsql') ? 0 : 1);" 2>$null

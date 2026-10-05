@@ -87,7 +87,8 @@ class AuthController extends Controller
             'message' => 'Code de verification envoye',
             'otp_requis' => true,
             'identifiant' => $request->identifiant,
-            'code_dev_uniquement' => $code,
+            // Code renvoye seulement en developpement : ailleurs, il doit parvenir par e-mail ou SMS.
+            ...(app()->environment('local') ? ['code_dev_uniquement' => $code] : []),
         ]);
     }
 
@@ -163,7 +164,8 @@ class AuthController extends Controller
         $code = $this->genererOtp($user, 'connexion');
         return response()->json([
             'message' => 'Nouveau code envoye',
-            'code_dev_uniquement' => $code,
+            // Code renvoye seulement en developpement : ailleurs, il doit parvenir par e-mail ou SMS.
+            ...(app()->environment('local') ? ['code_dev_uniquement' => $code] : []),
         ]);
     }
 
@@ -181,7 +183,8 @@ class AuthController extends Controller
         $code = $this->genererOtp($user, 'mot_de_passe_oublie');
         return response()->json([
             'message' => 'Code de reinitialisation envoye',
-            'code_dev_uniquement' => $code,
+            // Code renvoye seulement en developpement : ailleurs, il doit parvenir par e-mail ou SMS.
+            ...(app()->environment('local') ? ['code_dev_uniquement' => $code] : []),
         ]);
     }
 

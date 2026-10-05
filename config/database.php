@@ -95,7 +95,7 @@ return [
             'charset' => env('DB_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'public',
+            'search_path' => env('DB_SEARCH_PATH', 'public'),
             'sslmode' => env('DB_SSLMODE', 'prefer'),
             // Connexion reutilisee d'une requete a l'autre par le meme processus PHP (Laragon / FastCGI) :
             // sous Windows, ouvrir une connexion PostgreSQL coute 130 a 350 ms.

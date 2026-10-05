@@ -25,3 +25,21 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Application web copiee dans public/ par deploiement/preparer-paquet.ps1 (installation sur site)
+/public/index.html
+/public/assets
+/public/icones
+/public/images
+/public/favicon.svg
+/public/icons.svg
+
+# Application web copiee dans public/ par deploiement/preparer-paquet.ps1 (installation sur site)
+/public/index.html
+/public/assets
+/public/icones
+/public/images
+/public/favicon.svg
+/public/icons.svg
+/public/manifest.webmanifest
+/public/sw.js

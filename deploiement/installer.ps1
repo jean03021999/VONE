@@ -22,6 +22,8 @@
 # vers un dossier d'essai, -Base / -UtilisateurBase / -Port dédiés, -AdminBase (rôle PostgreSQL
 # autorisé à créer bases et rôles), -DossierSauvegardes, -SansTachePlanifiee. Le mot de passe
 # d'administration PostgreSQL peut être fourni par la variable LAKOLI_PG_ADMIN_MDP.
+# -DossiersRaccourcis : dossiers où créer le raccourci LAKOLI (par défaut : Bureau commun et menu
+# Démarrer commun, visibles par tous les comptes Windows du PC).
 
 param(
     [switch]$MiseAJour,
@@ -32,7 +34,8 @@ param(
     [string]$App = "",
     [string]$AdminBase = "postgres",
     [string]$DossierSauvegardes = "C:\LAKOLI-Sauvegardes",
-    [switch]$SansTachePlanifiee
+    [switch]$SansTachePlanifiee,
+    [string[]]$DossiersRaccourcis = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -156,6 +159,76 @@ $sites = Join-Path $Laragon "etc\apache2\sites-enabled"
 New-Item -ItemType Directory -Force $sites | Out-Null
 [IO.File]::WriteAllText((Join-Path $sites "lakoli-ecole.conf"), $site, (New-Object Text.UTF8Encoding $false))
 
+# --- Raccourci « LAKOLI » pour les utilisateurs ---------------------------------------------
+Etape "Raccourci LAKOLI (Bureau et menu Démarrer de tous les comptes)"
+$adresse = "http://127.0.0.1:$Port"
+
+# Icône Windows (.ico : 16, 32, 48 et 256 px, images PNG) tirée de l'icône de l'application.
+$icone = Join-Path $app "public\icones\lakoli.ico"
+try {
+    Add-Type -AssemblyName System.Drawing
+    $source = [Drawing.Image]::FromFile((Join-Path $app "public\icones\icone-512.png"))
+    $images = foreach ($taille in 16, 32, 48, 256) {
+        $bitmap = New-Object Drawing.Bitmap $taille, $taille
+        $dessin = [Drawing.Graphics]::FromImage($bitmap)
+        $dessin.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $dessin.DrawImage($source, 0, 0, $taille, $taille)
+        $flux = New-Object IO.MemoryStream
+        $bitmap.Save($flux, [Drawing.Imaging.ImageFormat]::Png)
+        $dessin.Dispose(); $bitmap.Dispose()
+        , @($taille, $flux.ToArray())
+    }
+    $source.Dispose()
+    $ico = New-Object IO.BinaryWriter([IO.File]::Create($icone))
+    $ico.Write([uint16]0); $ico.Write([uint16]1); $ico.Write([uint16]$images.Count)
+    $decalage = 6 + 16 * $images.Count
+    foreach ($img in $images) {
+        $cote = if ($img[0] -ge 256) { 0 } else { $img[0] }
+        $ico.Write([byte]$cote); $ico.Write([byte]$cote); $ico.Write([byte]0); $ico.Write([byte]0)
+        $ico.Write([uint16]1); $ico.Write([uint16]32); $ico.Write([uint32]$img[1].Length); $ico.Write([uint32]$decalage)
+        $decalage += $img[1].Length
+    }
+    foreach ($img in $images) { $ico.Write($img[1]) }
+    $ico.Close()
+} catch {
+    Write-Host "Icône non créée ($($_.Exception.Message)) : le raccourci aura l'icône du navigateur." -ForegroundColor Yellow
+    $icone = $null
+}
+
+# Fenêtre d'application (sans barre d'adresse) : Edge, présent sur tout Windows 10/11, sinon Chrome ;
+# à défaut, lien ouvert dans le navigateur par défaut.
+$navigateur = @(
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+
+$dossiers = if ($DossiersRaccourcis.Count) { $DossiersRaccourcis } else {
+    @([Environment]::GetFolderPath("CommonDesktopDirectory"), [Environment]::GetFolderPath("CommonPrograms"))
+}
+$shell = New-Object -ComObject WScript.Shell
+foreach ($dossier in $dossiers) {
+    try {
+        New-Item -ItemType Directory -Force $dossier | Out-Null
+        if ($navigateur) {
+            $lien = $shell.CreateShortcut((Join-Path $dossier "LAKOLI.lnk"))
+            $lien.TargetPath = $navigateur
+            $lien.Arguments = "--app=$adresse"
+            $lien.WorkingDirectory = Split-Path $navigateur
+            $lien.Description = "LAKOLI - Gestion scolaire"
+            if ($icone) { $lien.IconLocation = "$icone,0" }
+            $lien.Save()
+        } else {
+            $url = "[InternetShortcut]`r`nURL=$adresse/`r`n" + $(if ($icone) { "IconFile=$icone`r`nIconIndex=0`r`n" } else { "" })
+            [IO.File]::WriteAllText((Join-Path $dossier "LAKOLI.url"), $url, [Text.Encoding]::ASCII)
+        }
+    } catch {
+        Write-Host "Raccourci non créé dans $dossier : $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
 # --- 5. Sauvegardes ------------------------------------------------------------------------
 $script = Join-Path $app "deploiement\sauvegarde.ps1"
 if (-not $SansTachePlanifiee) {
@@ -182,3 +255,4 @@ Write-Host "  1. Menu > PHP > Version : choisir $versionPhp"
 Write-Host "  2. Cliquer « Arrêter » puis « Tout démarrer »"
 Write-Host ""
 Write-Host "Adresse (sur ce PC uniquement) : http://127.0.0.1:$Port"
+Write-Host "Raccourci « LAKOLI » : sur le Bureau et dans le menu Démarrer de chaque compte Windows."

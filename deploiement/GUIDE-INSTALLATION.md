@@ -57,7 +57,10 @@ pendant un enregistrement peut abîmer les données.
      (Petite Section… 6ème Année, 7ème… 10ème Année, 11ème/12ème Année par série, Terminales).
      Elles pourront être renommées ou supprimées ensuite.
 
-À la fin, le script affiche l'adresse de LAKOLI : **http://127.0.0.1:8080**.
+À la fin, le script affiche l'adresse de LAKOLI : **http://127.0.0.1:8080**. Il crée aussi un
+raccourci **« LAKOLI »** (icône bleue avec le « L ») sur le Bureau et dans le menu Démarrer, pour
+**tous les comptes Windows** du PC. Ce raccourci ouvre LAKOLI dans sa propre fenêtre, sans barre
+d'adresse.
 
 Avec cette installation, la connexion se fait avec **l'e-mail et le mot de passe**, sans code de
 vérification : l'accès est limité à ce PC. Après 5 essais erronés en une minute, la connexion est
@@ -77,7 +80,8 @@ L'installation a déjà créé **l'année scolaire en cours (active)** et **les 
 compte ne voit que les menus de son rôle : le fondateur ne gère ni les classes ni les frais. Suivez cet
 ordre.
 
-1. **Fondateur** : ouvrez Chrome ou Edge à l'adresse **http://127.0.0.1:8080**, choisissez le profil
+1. **Fondateur** : double-cliquez sur le raccourci **LAKOLI** du Bureau (ou ouvrez Chrome ou Edge à
+   l'adresse **http://127.0.0.1:8080**), choisissez le profil
    **Fondateur**, puis saisissez l'e-mail et le mot de passe de l'étape 2. Dans **Paramètres** :
    - **Mon établissement** : complétez la fiche (logo, adresse, agrément, slogan, WhatsApp de la comptabilité) ;
    - **Session scolaire** : vérifiez que l'année en cours est bien active ;
@@ -177,6 +181,7 @@ Cette opération remplace toutes les données actuelles. L'état actuel est sauv
 | Problème | Solution |
 |---|---|
 | La page ne s'ouvre pas | Laragon est-il démarré ? Cliquez **Tout démarrer**. |
+| Le raccourci LAKOLI a disparu du Bureau | Menu Démarrer > LAKOLI, ou relancer `installer.ps1 -MiseAJour` (le recrée). |
 | Erreur « 500 » ou page blanche | Laragon > PHP > Version : **php-8.5.8-nts-x64** doit être choisi, puis Arrêter / Tout démarrer. |
 | « Trop de tentatives » à la connexion | Attendez une minute, puis ressaisissez le mot de passe sans erreur. |
 | Les autres ordinateurs n'ouvrent pas LAKOLI | Normal avec cette installation : voir section 6. |

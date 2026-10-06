@@ -78,7 +78,7 @@ if ($LASTEXITCODE -ne 0) {
 
 if ($MiseAJour) {
     Etape "Sauvegarde avant mise à jour"
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $app "deploiement\sauvegarde.ps1") -App $app -Destination $DossierSauvegardes
+    $null | & powershell -ExecutionPolicy Bypass -File (Join-Path $app "deploiement\sauvegarde.ps1") -App $app -Destination $DossierSauvegardes
     if ($LASTEXITCODE -ne 0) { Echec "la sauvegarde a échoué : mise à jour annulée." }
     Artisan down
 }
@@ -280,7 +280,7 @@ if (-not $SansTachePlanifiee) {
 
 if (-not $MiseAJour) {
     Etape "Première sauvegarde"
-    & powershell -ExecutionPolicy Bypass -File $script -App $app -Destination $DossierSauvegardes
+    $null | & powershell -ExecutionPolicy Bypass -File $script -App $app -Destination $DossierSauvegardes
     if ($LASTEXITCODE -ne 0) { Write-Host "La première sauvegarde a échoué : vérifiez le journal dans $DossierSauvegardes." -ForegroundColor Yellow }
 }
 

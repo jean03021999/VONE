@@ -28,7 +28,7 @@ Write-Host "Toutes les données actuelles de LAKOLI seront remplacées." -Foregr
 if (-not $Confirmer -and (Read-Host "Tapez OUI pour continuer") -ne "OUI") { Write-Host "Annulé."; exit 0 }
 
 Write-Host "Sauvegarde de l'état actuel..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "sauvegarde.ps1") -App $App -Destination $Dossier
+$null | & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "sauvegarde.ps1") -App $App -Destination $Dossier
 if ($LASTEXITCODE -ne 0) { Write-Host "La sauvegarde de sécurité a échoué : restauration annulée." -ForegroundColor Red; exit 1 }
 
 $config = @{}

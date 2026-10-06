@@ -6,6 +6,8 @@ use App\Models\Eleve;
 use App\Models\Classe;
 use App\Models\GrilleTarifaire;
 use App\Models\Inscription;
+use App\Models\SessionScolaire;
+use App\Services\CorrespondanceClasses;
 use App\Services\FraisService;
 use App\Services\InscriptionService;
 use Illuminate\Http\Request;
@@ -214,21 +216,18 @@ class EleveImportController extends Controller
     }
 
     /**
-     * Le fichier peut contenir un ID de classe (ex: 3, 7, 11) ou son nom.
-     * On cherche d'abord par ID, puis par nom normalise en fallback.
-     * $classesNormalisees est deja limitee a l'etablissement et chargee une seule
-     * fois : pas de requete par ligne.
+     * Classes de l'annee scolaire active de l'etablissement, dans l'ordre pedagogique. Seules ces
+     * classes sont proposees et reconnues a l'import : une classe homonyme d'une annee precedente
+     * (« 7ème Année » 2026-2027 et 2027-2028) ne doit jamais recevoir les nouveaux eleves.
      */
-    private function verifierClasse(string $valeur, $classesNormalisees): ?Classe
+    private function classesAnneeActive(int $etablissementId)
     {
-        if (ctype_digit($valeur)) {
-            $parId = $classesNormalisees->firstWhere('id', (int) $valeur);
-            if ($parId) {
-                return $parId;
-            }
-        }
+        $sessionId = SessionScolaire::where('etablissement_id', $etablissementId)->where('est_active', true)->value('id');
 
-        return $classesNormalisees->get($this->normaliserTexte($valeur));
+        return Classe::where('etablissement_id', $etablissementId)
+            ->where('session_scolaire_id', $sessionId)
+            ->ordonneesPedagogiquement()
+            ->get();
     }
 
     private function trouverEleveExistant(array $donnee, int $etablissementId): ?Eleve
@@ -282,7 +281,7 @@ class EleveImportController extends Controller
         return 'identite:' . mb_strtolower($donnee['nom']) . '|' . mb_strtolower($donnee['prenom']) . '|' . $donnee['date_naissance'];
     }
 
-    private function analyserLigne(array $ligne, array $mapping, $classesNormalisees, int $etablissementId, array $grillesInscription): ?array
+    private function analyserLigne(array $ligne, array $mapping, CorrespondanceClasses $correspondance, int $etablissementId, array $grillesInscription): ?array
     {
         if (empty(array_filter($ligne, fn($v) => trim((string) $v) !== ''))) {
             return null;
@@ -328,14 +327,19 @@ class EleveImportController extends Controller
         }
         $donnee['date_naissance'] = $dateConvertie;
 
-        $classe = $this->verifierClasse($donnee['classe_nom'], $classesNormalisees);
+        // Classe ecrite librement (« 7e », « Tle SS », « 6eme A »...) : rattachee a la classe de
+        // l'annee active quand un seul candidat est possible (App\Services\CorrespondanceClasses).
+        [$classe, $raison] = $correspondance->trouver($donnee['classe_nom']);
         if (!$classe) {
             $donnee['statut'] = 'erreur';
-            $donnee['message'] = 'Classe introuvable : ' . $donnee['classe_nom'];
+            $donnee['message'] = $raison;
             $donnee['classe_id'] = null;
             return $donnee;
         }
         $donnee['classe_id'] = $classe->id;
+        // Nom saisi conserve pour l'affichage « saisi -> retenu » ; classe_nom = classe retenue.
+        $donnee['classe_saisie'] = $donnee['classe_nom'];
+        $donnee['classe_nom'] = $classe->nom;
 
         $typeLu = $this->lireTypeInscription($donnee['type_inscription_brut']);
         if ($typeLu === false) {
@@ -403,16 +407,20 @@ class EleveImportController extends Controller
         $entetes = array_shift($lignesBrutes);
         $mapping = $this->detecterColonnes($entetes ?? []);
 
-        $classesNormalisees = Classe::where('etablissement_id', $etablissementId)
-            ->get()
-            ->keyBy(fn($c) => $this->normaliserTexte($c->nom));
+        $classesActives = $this->classesAnneeActive($etablissementId);
+        if ($classesActives->isEmpty()) {
+            return response()->json([
+                'message' => "Aucune classe dans l'année scolaire active : la direction doit d'abord créer les classes (Gestion des Classes).",
+            ], 422);
+        }
 
+        $correspondance = new CorrespondanceClasses($classesActives);
         $grillesInscription = $this->grillesInscription($etablissementId);
 
         $resultats = [];
         $clesVuesDansLeFichier = [];
         foreach ($lignesBrutes as $ligne) {
-            $donnee = $this->analyserLigne($ligne, $mapping, $classesNormalisees, $etablissementId, $grillesInscription);
+            $donnee = $this->analyserLigne($ligne, $mapping, $correspondance, $etablissementId, $grillesInscription);
             if ($donnee === null) {
                 continue;
             }
@@ -449,31 +457,56 @@ class EleveImportController extends Controller
         ]);
     }
 
-    public function telechargerModele()
+    public function telechargerModele(Request $request)
     {
+        $etablissementId = $request->user()->etablissement_id;
+        $classes = $this->classesAnneeActive($etablissementId)->pluck('nom')->values();
+        $annee = SessionScolaire::where('etablissement_id', $etablissementId)->where('est_active', true)->value('libelle');
+
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $feuille = $spreadsheet->getActiveSheet();
+        $feuille->setTitle('Eleves');
 
         $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere', 'Nom du tuteur', 'Telephone du tuteur', "Lien avec l'eleve", "Type d'inscription", "Frais d'inscription payes"];
         $feuille->fromArray($entetes, null, 'A1');
 
+        // Exemples avec de vraies classes de l'ecole (nom exact, puis forme abregee acceptee).
+        $classeA = $classes->first() ?? '7ème Année';
+        $classeB = $classes->get(intdiv($classes->count(), 2)) ?? $classeA;
         $exemples = [
-            ['Diallo', 'Aminata', 'LAK-2026-001', '6eme A', '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305', '', '', '', 'Inscription', '200000'],
-            ['Camara', 'Ibrahima', '', '6eme A', '05/09/2013', 'Kindia', 'Sekou Camara', '+224622000111', '', '', '', '', '', 'Réinscription', ''],
+            ['Diallo', 'Aminata', '', $classeA, '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305', '', '', '', 'Inscription', ''],
+            ['Camara', 'Ibrahima', '', $classeB, '05/09/2013', 'Kindia', 'Sekou Camara', '+224622000111', '', '', '', '', '', 'Réinscription', ''],
         ];
         $feuille->fromArray($exemples, null, 'A2');
-
         foreach (range('A', 'O') as $colonne) {
             $feuille->getColumnDimension($colonne)->setAutoSize(true);
         }
 
-        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        // Onglet « Classes » : noms exacts de l'annee active, et ecritures abregees reconnues.
+        $onglet = $spreadsheet->createSheet();
+        $onglet->setTitle('Classes');
+        $onglet->setCellValue('A1', 'Classes ' . ($annee ? "de l'année {$annee}" : "de l'école") . ' : à recopier dans la colonne « Classe » de l\'onglet Eleves');
+        $onglet->getStyle('A1')->getFont()->setBold(true);
+        $onglet->fromArray($classes->map(fn ($nom) => [$nom])->all() ?: [['(aucune classe : la direction doit les créer dans Gestion des Classes)']], null, 'A3');
+        $ligne = $classes->count() + 5;
+        $onglet->setCellValue("A{$ligne}", 'Écritures abrégées aussi acceptées, par exemple :');
+        $onglet->getStyle("A{$ligne}")->getFont()->setBold(true);
+        $onglet->fromArray([
+            ['7e, 7eme, 7ÈME ANNÉE  →  7ème Année'],
+            ['1ère, CP1 … CM2  →  1ère Année … 6ème Année'],
+            ['PS, MS, GS  →  Petite, Moyenne, Grande Section'],
+            ['11e S, 11 L, 12e Scientifique  →  11ème / 12ème Année, série correspondante'],
+            ['Tle SM, TSE, Term Sociales  →  Terminale de la série correspondante'],
+            ['6e A, 6ème B  →  la classe de ce groupe (si l\'école a plusieurs groupes)'],
+            ['Une écriture qui correspond à plusieurs classes (« 12e », « Tle S ») est refusée : précisez la série ou le groupe.'],
+        ], null, 'A' . ($ligne + 1));
+        $onglet->getColumnDimension('A')->setAutoSize(true);
+        $spreadsheet->setActiveSheetIndex(0);
 
-        $nomFichier = 'modele_import_eleves_lakoli.xlsx';
-        $chemin = storage_path('app/' . $nomFichier);
-        $writer->save($chemin);
+        $chemin = tempnam(sys_get_temp_dir(), 'lakoli-modele-');
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($chemin);
 
-        return response()->download($chemin)->deleteFileAfterSend(true);
+        return response()->download($chemin, 'modele_import_eleves_lakoli.xlsx')->deleteFileAfterSend(true);
     }
 
     public function executer(Request $request)
@@ -499,11 +532,16 @@ class EleveImportController extends Controller
         $inscriptionService = new InscriptionService();
         $fraisService = new FraisService();
 
+        $classesActives = $this->classesAnneeActive($etablissementId)->keyBy('id');
+
         foreach ($lignes as $donnee) {
-            $classe = Classe::where('id', $donnee['classe_id'] ?? null)
-                ->where('etablissement_id', $etablissementId)
-                ->first();
+            // Les lignes viennent du navigateur : la classe doit appartenir a l'annee active.
+            $classe = $classesActives->get((int) ($donnee['classe_id'] ?? 0));
             if (!$classe) {
+                $erreurs[] = [
+                    'nom' => trim(($donnee['nom'] ?? '') . ' ' . ($donnee['prenom'] ?? '')),
+                    'message' => "Classe absente de l'année scolaire active : relancez l'analyse du fichier.",
+                ];
                 continue;
             }
 

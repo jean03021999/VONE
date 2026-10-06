@@ -39,19 +39,24 @@ class CorrespondanceClasses
     }
 
     /**
+     * $parIdentifiant : la saisie est l'identifiant interne de la classe (colonne « classe_id »).
+     * Sinon « 7 » designe la 7e annee, jamais la classe d'identifiant 7.
+     *
      * @return array{0: ?object, 1: ?string} [classe reconnue ou null, message d'erreur]
      */
-    public function trouver(?string $saisie): array
+    public function trouver(?string $saisie, bool $parIdentifiant = false): array
     {
         $saisie = trim((string) $saisie);
         if ($saisie === '') {
             return [null, 'Classe non renseignée.'];
         }
 
-        // 1. Identifiant de classe, puis nom identique (sans accents, majuscules ni ponctuation).
-        if (ctype_digit($saisie) && ($parId = $this->classes->firstWhere('id', (int) $saisie))) {
-            return [$parId, null];
+        if ($parIdentifiant) {
+            $parId = ctype_digit($saisie) ? $this->classes->firstWhere('id', (int) $saisie) : null;
+            return $parId ? [$parId, null] : [null, "Classe non reconnue : identifiant « {$saisie} » absent de l'année active."];
         }
+
+        // 1. Nom identique (sans accents, majuscules ni ponctuation).
         $cle = self::compacter($saisie);
         $identique = $this->classes->first(fn ($c) => self::compacter($c->nom) === $cle);
         if ($identique) {

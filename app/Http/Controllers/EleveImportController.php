@@ -77,7 +77,14 @@ class EleveImportController extends Controller
     private array $synonymesExacts = [
         'pere' => 'pere_nom',
         'mere' => 'mere_nom',
+        // Identifiant interne de la classe (anciens exports LAKOLI) : « 7 » y vaut la classe n°7.
+        'classeid' => 'classe_id',
+        'idclasse' => 'classe_id',
+        'idelaclasse' => 'classe_id',
     ];
+
+    /** En-tetes d'une colonne unique contenant nom et prenoms (« Élève », « Nom complet »). */
+    private array $variantesNomComplet = ['nomcomplet', 'eleve', 'eleves', 'nomdeleleve', 'nomdeleleves', 'nomsdeseleves', 'nomdeseleves', 'identite', 'identitedeleleve'];
 
     /** Nombre de lignes parcourues pour trouver la ligne d'en-tetes (titre eventuel au-dessus). */
     private const LIGNES_RECHERCHE_ENTETES = 10;
@@ -168,6 +175,15 @@ class EleveImportController extends Controller
                 continue;
             }
 
+            $nomComplet = $this->lireEnteteNomComplet($normalise);
+            if ($nomComplet !== null) {
+                if (!isset($mapping['nom_complet'])) {
+                    $mapping['nom_complet'] = $index;
+                    $mapping['ordre_nom_complet'] = $nomComplet;
+                }
+                continue;
+            }
+
             if (in_array($normalise, $this->variantesNom, true) && !isset($mapping['nom'])) {
                 $mapping['nom'] = $index;
                 continue;
@@ -197,19 +213,73 @@ class EleveImportController extends Controller
     }
 
     /**
+     * Colonne unique « Nom et prénoms » : 'nom_prenom' (nom en tete), 'prenom_nom' (prenoms en
+     * tete) ou null si l'en-tete n'en est pas une. « Prénom du père » n'en est pas une.
+     */
+    private function lireEnteteNomComplet(string $normalise): ?string
+    {
+        if (preg_match('/pere|mere|tuteur/', $normalise)) {
+            return null;
+        }
+        if (in_array($normalise, $this->variantesNomComplet, true) || preg_match('/^noms?(et)?prenoms?/', $normalise)) {
+            return 'nom_prenom';
+        }
+        if (preg_match('/^prenoms?(et)?noms?($|de)/', $normalise)) {
+            return 'prenom_nom';
+        }
+        return null;
+    }
+
+    /**
      * Ligne d'en-tetes d'une feuille : la premiere, parmi les premieres lignes, ou l'on reconnait
-     * les colonnes Nom et Prenom (un titre « Liste des eleves 2026-2027 » peut la preceder).
+     * les colonnes Nom et Prenom, ou une colonne « Nom et prénoms » (un titre « Liste des eleves
+     * 2026-2027 » peut la preceder ; un titre tient dans une cellule, pas une ligne d'en-tetes).
      * Retourne [index de la ligne, correspondance colonne -> champ] ou null.
      */
     private function trouverEntetes(array $lignes): ?array
     {
         foreach (array_slice($lignes, 0, self::LIGNES_RECHERCHE_ENTETES, true) as $index => $ligne) {
+            if (count(array_filter($ligne, fn ($v) => trim((string) $v) !== '')) < 2) {
+                continue;
+            }
             $mapping = $this->detecterColonnes($ligne);
-            if (isset($mapping['nom'], $mapping['prenom'])) {
+            if (isset($mapping['nom'], $mapping['prenom']) || isset($mapping['nom_complet'])) {
                 return [$index, $mapping];
             }
         }
         return null;
+    }
+
+    /**
+     * Separe « DIALLO Mamadou Saliou » en [nom, prenoms]. Les mots en MAJUSCULES forment le nom
+     * quand le reste ne l'est pas (quel que soit l'ordre) ; sinon le premier mot est le nom
+     * (dernier mot pour une colonne « Prénoms et nom »). Un seul mot : prenom vide (erreur).
+     */
+    private function decouperNomComplet(string $valeur, string $ordre): array
+    {
+        $mots = preg_split('/\s+/u', trim($valeur), -1, PREG_SPLIT_NO_EMPTY);
+        if (count($mots) < 2) {
+            return [trim($valeur), ''];
+        }
+
+        $majuscule = fn (string $mot) => preg_match('/\p{L}/u', $mot) && mb_strtoupper($mot) === $mot && mb_strtolower($mot) !== $mot;
+        $enMajuscules = array_map($majuscule, $mots);
+        $nbMajuscules = count(array_filter($enMajuscules));
+        if ($nbMajuscules > 0 && $nbMajuscules < count($mots)) {
+            // Mots en majuscules groupes en debut ou en fin : c'est le nom de famille.
+            $enTete = array_slice($enMajuscules, 0, $nbMajuscules) === array_fill(0, $nbMajuscules, true);
+            $enFin = array_slice($enMajuscules, -$nbMajuscules) === array_fill(0, $nbMajuscules, true);
+            if ($enTete) {
+                return [implode(' ', array_slice($mots, 0, $nbMajuscules)), implode(' ', array_slice($mots, $nbMajuscules))];
+            }
+            if ($enFin) {
+                return [implode(' ', array_slice($mots, -$nbMajuscules)), implode(' ', array_slice($mots, 0, -$nbMajuscules))];
+            }
+        }
+
+        return $ordre === 'prenom_nom'
+            ? [end($mots), implode(' ', array_slice($mots, 0, -1))]
+            : [$mots[0], implode(' ', array_slice($mots, 1))];
     }
 
     private function extraireValeur(array $ligne, array $mapping, string $champ): string
@@ -268,7 +338,7 @@ class EleveImportController extends Controller
             return 'Nom manquant.';
         }
         if ($donnee['prenom'] === '') {
-            return 'Prenom manquant.';
+            return 'Prénom manquant.';
         }
         if ($donnee['date_naissance_brute'] === '') {
             return 'Date de naissance manquante.';
@@ -362,17 +432,29 @@ class EleveImportController extends Controller
         return 'identite:' . mb_strtolower($donnee['nom']) . '|' . mb_strtolower($donnee['prenom']) . '|' . $donnee['date_naissance'];
     }
 
-    private function analyserLigne(array $ligne, array $ligneBrute, array $mapping, CorrespondanceClasses $correspondance, int $etablissementId, array $grillesInscription): ?array
+    /**
+     * $nomFeuille : classe retenue quand la ligne n'en donne pas (classeur avec une feuille par
+     * classe, nommee « 7e », « 6ème A »...).
+     */
+    private function analyserLigne(array $ligne, array $ligneBrute, array $mapping, string $nomFeuille, CorrespondanceClasses $correspondance, int $etablissementId, array $grillesInscription): ?array
     {
         if (empty(array_filter($ligne, fn($v) => trim((string) $v) !== ''))) {
             return null;
         }
 
+        $nom = $this->extraireValeur($ligne, $mapping, 'nom');
+        $prenom = $this->extraireValeur($ligne, $mapping, 'prenom');
+        // Colonne « Nom et prénoms » : utilisee seulement si Nom ou Prenom manque en colonne separee.
+        if (($nom === '' || $prenom === '') && isset($mapping['nom_complet'])) {
+            [$nom, $prenom] = $this->decouperNomComplet($this->extraireValeur($ligne, $mapping, 'nom_complet'), $mapping['ordre_nom_complet']);
+        }
+
+        $classeParIdentifiant = !isset($mapping['classe']) && isset($mapping['classe_id']);
         $donnee = [
-            'nom' => $this->extraireValeur($ligne, $mapping, 'nom'),
-            'prenom' => $this->extraireValeur($ligne, $mapping, 'prenom'),
+            'nom' => $nom,
+            'prenom' => $prenom,
             'matricule' => $this->extraireValeur($ligne, $mapping, 'matricule'),
-            'classe_nom' => $this->extraireValeur($ligne, $mapping, 'classe'),
+            'classe_nom' => $this->extraireValeur($ligne, $mapping, $classeParIdentifiant ? 'classe_id' : 'classe'),
             'date_naissance_brute' => $this->extraireValeur($ligne, $mapping, 'date_naissance'),
             'lieu_naissance' => $this->extraireValeur($ligne, $mapping, 'lieu_naissance'),
             'pere_nom' => $this->extraireValeur($ligne, $mapping, 'pere_nom'),
@@ -410,7 +492,15 @@ class EleveImportController extends Controller
 
         // Classe ecrite librement (« 7e », « Tle SS », « 6eme A »...) : rattachee a la classe de
         // l'annee active quand un seul candidat est possible (App\Services\CorrespondanceClasses).
-        [$classe, $raison] = $correspondance->trouver($donnee['classe_nom']);
+        if ($donnee['classe_nom'] !== '') {
+            [$classe, $raison] = $correspondance->trouver($donnee['classe_nom'], $classeParIdentifiant);
+        } else {
+            // Pas de classe sur la ligne : celle que designe le nom de la feuille.
+            [$classe] = $correspondance->trouver($nomFeuille);
+            $raison = "Classe non renseignée, et le nom de la feuille « {$nomFeuille} » n'est pas une classe reconnue : "
+                . 'ajoutez une colonne « Classe » ou renommez la feuille (ex. « 7e », « 6ème A »).';
+            $donnee['classe_nom'] = $nomFeuille;
+        }
         if (!$classe) {
             $donnee['statut'] = 'erreur';
             $donnee['message'] = $raison;
@@ -515,7 +605,7 @@ class EleveImportController extends Controller
         }
         if ($feuilles === []) {
             return response()->json([
-                'message' => 'Colonnes « Nom » et « Prénom » introuvables dans les ' . self::LIGNES_RECHERCHE_ENTETES
+                'message' => 'Colonnes « Nom » et « Prénom » (ou « Nom et prénoms ») introuvables dans les ' . self::LIGNES_RECHERCHE_ENTETES
                     . " premières lignes du fichier : vérifiez la ligne d'en-têtes ou partez du modèle à télécharger.",
             ], 422);
         }
@@ -534,7 +624,7 @@ class EleveImportController extends Controller
         $clesVuesDansLeFichier = [];
         foreach ($feuilles as $feuille) {
             foreach ($feuille['affichees'] as $i => $ligne) {
-                $donnee = $this->analyserLigne($ligne, $feuille['brutes'][$i] ?? [], $feuille['mapping'], $correspondance, $etablissementId, $grillesInscription);
+                $donnee = $this->analyserLigne($ligne, $feuille['brutes'][$i] ?? [], $feuille['mapping'], $feuille['nom'], $correspondance, $etablissementId, $grillesInscription);
                 if ($donnee === null) {
                     continue;
                 }
@@ -557,8 +647,13 @@ class EleveImportController extends Controller
 
         return response()->json([
             // Colonnes reconnues dans au moins une feuille.
-            'colonnes_detectees' => array_values(array_unique(array_merge(...array_map(fn ($f) => array_keys($f['mapping']), $feuilles)))),
+            'colonnes_detectees' => array_values(array_diff(
+                array_unique(array_merge(...array_map(fn ($f) => array_keys($f['mapping']), $feuilles))),
+                ['ordre_nom_complet']
+            )),
             'feuilles' => array_column($feuilles, 'nom'),
+            // Nom et prénoms lus dans une seule colonne puis séparés : à vérifier dans l'aperçu.
+            'nom_complet' => collect($feuilles)->contains(fn ($f) => isset($f['mapping']['nom_complet']) && !isset($f['mapping']['nom'], $f['mapping']['prenom'])),
             'lignes' => $resultats,
             'stats' => [
                 'total' => count($resultats),

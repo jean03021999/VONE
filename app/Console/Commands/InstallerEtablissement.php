@@ -37,7 +37,7 @@ class InstallerEtablissement extends Command
     protected $description = "Cree l'etablissement, ses roles, le compte du fondateur, l'annee scolaire et les classes sur une base neuve.";
 
     // Classes courantes par cycle (systeme guineen), dans l'ordre pedagogique.
-    private const CLASSES = [
+    public const CLASSES = [
         'maternelle' => ['Petite Section', 'Moyenne Section', 'Grande Section'],
         'primaire' => ['1ère Année', '2ème Année', '3ème Année', '4ème Année', '5ème Année', '6ème Année'],
         'college' => ['7ème Année', '8ème Année', '9ème Année', '10ème Année'],
@@ -48,7 +48,7 @@ class InstallerEtablissement extends Command
         ],
     ];
 
-    private const LIBELLES_CYCLES = [
+    public const LIBELLES_CYCLES = [
         'maternelle' => 'Maternelle', 'primaire' => 'Primaire', 'college' => 'Collège', 'lycee' => 'Lycée',
     ];
 

@@ -94,6 +94,38 @@ foreach ($d in "storage\app\private", "storage\framework\cache\data", "storage\f
     New-Item -ItemType Directory -Force (Join-Path $app $d) | Out-Null
 }
 
+if ($MiseAJour) {
+    # Le .env est conservé ; on y ajoute seulement les réglages apparus depuis l'installation
+    # (présents dans le nouveau .env.ecole), sans jamais modifier une valeur existante, sauf la
+    # langue : les installations faites avant la traduction française avaient APP_LOCALE=en.
+    Etape "Configuration (.env) : réglages ajoutés depuis l'installation"
+    $cheminEnv = Join-Path $app ".env"
+    $lignesEnv = [Collections.Generic.List[string]]([IO.File]::ReadAllLines($cheminEnv))
+    $clesEnv = foreach ($l in $lignesEnv) { if ($l -match '^\s*([A-Z0-9_]+)\s*=') { $Matches[1] } }
+    $ajouts = @()
+    foreach ($ligne in [IO.File]::ReadAllLines((Join-Path $app "deploiement\.env.ecole"))) {
+        if ($ligne -match '^([A-Z0-9_]+)=(.*)$' -and $clesEnv -notcontains $Matches[1] -and $Matches[2] -notmatch '__') {
+            $ajouts += $ligne
+        }
+    }
+    if ($ajouts.Count) {
+        $lignesEnv.Add("")
+        $lignesEnv.Add("# Ajouté par la mise à jour du $(Get-Date -Format 'dd/MM/yyyy') (voir deploiement\.env.ecole)")
+        foreach ($a in $ajouts) { $lignesEnv.Add($a); Write-Host "  ajouté : $a" }
+    }
+    $iLangue = -1
+    for ($i = 0; $i -lt $lignesEnv.Count; $i++) { if ($lignesEnv[$i] -match '^APP_LOCALE=en\s*$') { $iLangue = $i } }
+    if ($iLangue -ge 0 -and (Test-Path (Join-Path $app "lang\fr\validation.php"))) {
+        $lignesEnv[$iLangue] = "APP_LOCALE=fr"
+        Write-Host "  langue : APP_LOCALE=fr (messages d'erreur en français)"
+    }
+    [IO.File]::WriteAllLines($cheminEnv, $lignesEnv, (New-Object Text.UTF8Encoding $false))
+    if (-not $ajouts.Count -and $iLangue -lt 0) { Write-Host "  rien à ajouter." }
+
+    # Règle de pare-feu des tout premiers paquets : LAKOLI n'écoute plus que sur 127.0.0.1.
+    Remove-NetFirewallRule -DisplayName "LAKOLI (port $Port)" -ErrorAction SilentlyContinue
+}
+
 # --- 2 et 3. Base et configuration (première installation) ----------------------------------
 if (-not $MiseAJour) {
     Etape "Base de données PostgreSQL"
@@ -131,6 +163,12 @@ if (-not $MiseAJour) {
     Etape "Établissement et compte du fondateur"
     & $php (Join-Path $app "artisan") lakoli:installer
     if ($LASTEXITCODE -ne 0) { Echec "création de l'établissement interrompue. Relancez : php artisan lakoli:installer (dans $app)." }
+} else {
+    # Installations faites avant que l'installateur ne crée les classes : année scolaire et classes
+    # courantes proposées si l'année active n'a aucune classe (sinon rien n'est modifié).
+    Etape "Année scolaire et classes"
+    & $php (Join-Path $app "artisan") lakoli:classes-courantes
+    if ($LASTEXITCODE -ne 0) { Write-Host "Classes non créées : relancez plus tard « php artisan lakoli:classes-courantes » dans $app." -ForegroundColor Yellow }
 }
 
 Etape "Optimisation"

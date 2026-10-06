@@ -45,7 +45,6 @@ class EleveImportController extends Controller
         'nomdupere' => 'pere_nom',
         'perenom' => 'pere_nom',
         'nompere' => 'pere_nom',
-        'pere' => 'pere_nom',
         'telephonedupere' => 'pere_telephone',
         'peretelephone' => 'pere_telephone',
         'telephonepere' => 'pere_telephone',
@@ -53,7 +52,6 @@ class EleveImportController extends Controller
         'nomdelamere' => 'mere_nom',
         'merenom' => 'mere_nom',
         'nommere' => 'mere_nom',
-        'mere' => 'mere_nom',
         'telephonedelamere' => 'mere_telephone',
         'meretelephone' => 'mere_telephone',
         'telephonemere' => 'mere_telephone',
@@ -71,6 +69,18 @@ class EleveImportController extends Controller
         'lienavecleleve' => 'tuteur_lien',
         'classe' => 'classe',
     ];
+
+    /**
+     * En-tetes reconnus seulement s'ils sont ecrits tels quels : « Telephone du pere » ou
+     * « Profession du pere » contiennent aussi « pere » et ne doivent pas devenir le nom du pere.
+     */
+    private array $synonymesExacts = [
+        'pere' => 'pere_nom',
+        'mere' => 'mere_nom',
+    ];
+
+    /** Nombre de lignes parcourues pour trouver la ligne d'en-tetes (titre eventuel au-dessus). */
+    private const LIGNES_RECHERCHE_ENTETES = 10;
 
     /**
      * Normalise un texte : minuscule, sans accent, sans espace/ponctuation.
@@ -92,8 +102,13 @@ class EleveImportController extends Controller
     }
 
     /**
-     * Convertit une date, quel que soit son format d'origine, vers Y-m-d.
-     * Retourne null si la date est invalide plutot que de lever une exception.
+     * Convertit une date de naissance vers Y-m-d ; null si elle est invalide ou invraisemblable.
+     *
+     * $valeur est la valeur BRUTE de la cellule : un numero de serie Excel pour une cellule date
+     * (le texte affiche par PhpSpreadsheet suit le format americain m/d/yy et inverserait jour et
+     * mois), sinon le texte saisi : jour/mois/annee (separateurs / - . et annee sur 2 ou 4
+     * chiffres) ou annee-mois-jour. Un jour ou un mois impossible (31/02, 13e mois) est refuse au
+     * lieu d'etre reporte sur le mois suivant.
      */
     private function normaliserDate($valeur): ?string
     {
@@ -101,30 +116,42 @@ class EleveImportController extends Controller
             return null;
         }
 
-        if (is_numeric($valeur)) {
+        if (is_int($valeur) || is_float($valeur)) {
             try {
-                $date = DateExcel::excelToDateTimeObject((float) $valeur);
-                return $date->format('Y-m-d');
+                $date = Carbon::instance(DateExcel::excelToDateTimeObject((float) $valeur));
             } catch (\Throwable $e) {
                 return null;
             }
+            return $this->dateVraisemblable($date);
         }
 
         $valeur = trim((string) $valeur);
-        $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'd.m.Y', 'Y/m/d'];
-
-        foreach ($formats as $format) {
-            try {
-                $date = Carbon::createFromFormat($format, $valeur);
-                if ($date !== false) {
-                    return $date->format('Y-m-d');
-                }
-            } catch (\Throwable $e) {
-                continue;
+        if (preg_match('/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/', $valeur, $m)) {
+            [$annee, $mois, $jour] = [(int) $m[1], (int) $m[2], (int) $m[3]];
+        } elseif (preg_match('/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2}|\d{4})$/', $valeur, $m)) {
+            [$jour, $mois, $annee] = [(int) $m[1], (int) $m[2], (int) $m[3]];
+            if (strlen($m[3]) === 2) {
+                // 14 -> 2014, 98 -> 1998 : une annee a deux chiffres posterieure a l'annee en cours
+                // appartient au siecle precedent.
+                $annee += $annee <= (int) date('y') ? 2000 : 1900;
             }
+        } else {
+            return null;
         }
 
-        return null;
+        if (!checkdate($mois, $jour, $annee)) {
+            return null;
+        }
+        return $this->dateVraisemblable(Carbon::create($annee, $mois, $jour));
+    }
+
+    /** Date de naissance acceptee : ni dans le futur, ni avant 1900. */
+    private function dateVraisemblable(Carbon $date): ?string
+    {
+        if ($date->year < 1900 || $date->isAfter(Carbon::today())) {
+            return null;
+        }
+        return $date->format('Y-m-d');
     }
 
     /**
@@ -150,6 +177,14 @@ class EleveImportController extends Controller
                 continue;
             }
 
+            $champExact = $this->synonymesExacts[$normalise] ?? null;
+            if ($champExact !== null) {
+                if (!isset($mapping[$champExact])) {
+                    $mapping[$champExact] = $index;
+                }
+                continue;
+            }
+
             foreach ($this->synonymesParMotif as $motif => $champ) {
                 if (str_contains($normalise, $motif) && !isset($mapping[$champ])) {
                     $mapping[$champ] = $index;
@@ -161,12 +196,38 @@ class EleveImportController extends Controller
         return $mapping;
     }
 
+    /**
+     * Ligne d'en-tetes d'une feuille : la premiere, parmi les premieres lignes, ou l'on reconnait
+     * les colonnes Nom et Prenom (un titre « Liste des eleves 2026-2027 » peut la preceder).
+     * Retourne [index de la ligne, correspondance colonne -> champ] ou null.
+     */
+    private function trouverEntetes(array $lignes): ?array
+    {
+        foreach (array_slice($lignes, 0, self::LIGNES_RECHERCHE_ENTETES, true) as $index => $ligne) {
+            $mapping = $this->detecterColonnes($ligne);
+            if (isset($mapping['nom'], $mapping['prenom'])) {
+                return [$index, $mapping];
+            }
+        }
+        return null;
+    }
+
     private function extraireValeur(array $ligne, array $mapping, string $champ): string
     {
         if (!isset($mapping[$champ])) {
             return '';
         }
         return trim((string) ($ligne[$mapping[$champ]] ?? ''));
+    }
+
+    /** Valeur brute de la cellule (nombre pour une date ou un montant saisis comme tels). */
+    private function extraireBrut(array $ligneBrute, array $mapping, string $champ): mixed
+    {
+        if (!isset($mapping[$champ])) {
+            return null;
+        }
+        $valeur = $ligneBrute[$mapping[$champ]] ?? null;
+        return is_string($valeur) ? trim($valeur) : $valeur;
     }
 
     /**
@@ -230,19 +291,39 @@ class EleveImportController extends Controller
             ->get();
     }
 
-    private function trouverEleveExistant(array $donnee, int $etablissementId): ?Eleve
+    /**
+     * Eleve deja enregistre correspondant a la ligne : [Eleve|null, message d'erreur|null].
+     *
+     * Un matricule du fichier deja porte par un AUTRE eleve (nom, prenom ou date differents) est
+     * une erreur : sinon cet autre eleve serait reinscrit a la place du nouveau. L'identite est
+     * comparee sans tenir compte des majuscules (« DIALLO » = « Diallo »).
+     */
+    private function trouverEleveExistant(array $donnee, int $etablissementId): array
     {
-        return Eleve::where('etablissement_id', $etablissementId)
-            ->where(function ($q) use ($donnee) {
-                if (!empty($donnee['matricule'])) {
-                    $q->where('matricule', $donnee['matricule']);
+        $memeIdentite = fn (Eleve $e) => mb_strtolower($e->nom) === mb_strtolower($donnee['nom'])
+            && mb_strtolower($e->prenom) === mb_strtolower($donnee['prenom'])
+            && Carbon::parse($e->date_naissance)->format('Y-m-d') === $donnee['date_naissance'];
+
+        if (!empty($donnee['matricule'])) {
+            // Le matricule est unique pour toute la base, eleves supprimes compris.
+            $parMatricule = Eleve::withTrashed()->where('matricule', $donnee['matricule'])->first();
+            if ($parMatricule) {
+                if ((int) $parMatricule->etablissement_id !== $etablissementId || $parMatricule->trashed() || !$memeIdentite($parMatricule)) {
+                    $porteur = (int) $parMatricule->etablissement_id === $etablissementId && !$parMatricule->trashed()
+                        ? " à {$parMatricule->prenom} {$parMatricule->nom}"
+                        : '';
+                    return [null, "Matricule {$donnee['matricule']} déjà attribué{$porteur} : corrigez-le ou laissez la cellule vide."];
                 }
-                $q->orWhere(function ($q2) use ($donnee) {
-                    $q2->where('nom', $donnee['nom'])
-                        ->where('prenom', $donnee['prenom'])
-                        ->where('date_naissance', $donnee['date_naissance']);
-                });
-            })->first();
+                return [$parMatricule, null];
+            }
+        }
+
+        $eleve = Eleve::where('etablissement_id', $etablissementId)
+            ->whereDate('date_naissance', $donnee['date_naissance'])
+            ->whereRaw('LOWER(nom) = ?', [mb_strtolower($donnee['nom'])])
+            ->whereRaw('LOWER(prenom) = ?', [mb_strtolower($donnee['prenom'])])
+            ->first();
+        return [$eleve, null];
     }
 
     private function estInscritSurSession(int $eleveId, int $sessionId): bool
@@ -281,7 +362,7 @@ class EleveImportController extends Controller
         return 'identite:' . mb_strtolower($donnee['nom']) . '|' . mb_strtolower($donnee['prenom']) . '|' . $donnee['date_naissance'];
     }
 
-    private function analyserLigne(array $ligne, array $mapping, CorrespondanceClasses $correspondance, int $etablissementId, array $grillesInscription): ?array
+    private function analyserLigne(array $ligne, array $ligneBrute, array $mapping, CorrespondanceClasses $correspondance, int $etablissementId, array $grillesInscription): ?array
     {
         if (empty(array_filter($ligne, fn($v) => trim((string) $v) !== ''))) {
             return null;
@@ -317,10 +398,10 @@ class EleveImportController extends Controller
             return $donnee;
         }
 
-        $dateConvertie = $this->normaliserDate($donnee['date_naissance_brute']);
+        $dateConvertie = $this->normaliserDate($this->extraireBrut($ligneBrute, $mapping, 'date_naissance'));
         if ($dateConvertie === null) {
             $donnee['statut'] = 'erreur';
-            $donnee['message'] = 'Date de naissance invalide.';
+            $donnee['message'] = 'Date de naissance invalide : ' . $donnee['date_naissance_brute'] . ' (attendu : jour/mois/année, ex. 12/03/2014).';
             $donnee['classe_id'] = null;
             $donnee['date_naissance'] = null;
             return $donnee;
@@ -349,7 +430,12 @@ class EleveImportController extends Controller
         }
 
         $message = '';
-        $existant = $this->trouverEleveExistant($donnee, $etablissementId);
+        [$existant, $erreurMatricule] = $this->trouverEleveExistant($donnee, $etablissementId);
+        if ($erreurMatricule !== null) {
+            $donnee['statut'] = 'erreur';
+            $donnee['message'] = $erreurMatricule;
+            return $donnee;
+        }
         if ($existant) {
             if ($this->estInscritSurSession($existant->id, $classe->session_scolaire_id)) {
                 $donnee['statut'] = 'doublon';
@@ -364,7 +450,11 @@ class EleveImportController extends Controller
             $donnee['type_inscription'] = $typeLu ?? 'inscription';
         }
 
-        $montant = $this->lireMontant($donnee['frais_inscription_brut']);
+        // Cellule numerique : valeur brute (le texte affiche « 200,000.00 » serait lu 20 000 000).
+        $montantBrut = $this->extraireBrut($ligneBrute, $mapping, 'frais_inscription');
+        $montant = is_int($montantBrut) || is_float($montantBrut)
+            ? ($montantBrut > 0 ? (float) $montantBrut : ($montantBrut == 0 ? null : false))
+            : $this->lireMontant($donnee['frais_inscription_brut']);
         if ($montant === false) {
             $donnee['statut'] = 'erreur';
             $donnee['message'] = "Frais d'inscription illisibles : " . $donnee['frais_inscription_brut'];
@@ -403,9 +493,32 @@ class EleveImportController extends Controller
         $etablissementId = $request->user()->etablissement_id;
 
         $spreadsheet = IOFactory::load($request->file('fichier')->getPathname());
-        $lignesBrutes = $spreadsheet->getActiveSheet()->toArray();
-        $entetes = array_shift($lignesBrutes);
-        $mapping = $this->detecterColonnes($entetes ?? []);
+
+        // Toutes les feuilles dont on reconnait les en-tetes (une feuille par classe, par exemple) ;
+        // les autres (onglet « Classes » du modele, notes...) sont ignorees.
+        $feuilles = [];
+        foreach ($spreadsheet->getWorksheetIterator() as $feuille) {
+            // Texte affiche pour les noms, telephones, classes ; valeurs brutes pour les dates et
+            // les montants (voir normaliserDate).
+            $affichees = $feuille->toArray();
+            $entetes = $this->trouverEntetes($affichees);
+            if ($entetes === null) {
+                continue;
+            }
+            [$ligneEntetes, $mapping] = $entetes;
+            $feuilles[] = [
+                'nom' => $feuille->getTitle(),
+                'mapping' => $mapping,
+                'affichees' => array_slice($affichees, $ligneEntetes + 1),
+                'brutes' => array_slice($feuille->toArray(null, true, false), $ligneEntetes + 1),
+            ];
+        }
+        if ($feuilles === []) {
+            return response()->json([
+                'message' => 'Colonnes « Nom » et « Prénom » introuvables dans les ' . self::LIGNES_RECHERCHE_ENTETES
+                    . " premières lignes du fichier : vérifiez la ligne d'en-têtes ou partez du modèle à télécharger.",
+            ], 422);
+        }
 
         $classesActives = $this->classesAnneeActive($etablissementId);
         if ($classesActives->isEmpty()) {
@@ -419,29 +532,33 @@ class EleveImportController extends Controller
 
         $resultats = [];
         $clesVuesDansLeFichier = [];
-        foreach ($lignesBrutes as $ligne) {
-            $donnee = $this->analyserLigne($ligne, $mapping, $correspondance, $etablissementId, $grillesInscription);
-            if ($donnee === null) {
-                continue;
-            }
-
-            if ($donnee['statut'] === 'ok') {
-                $cle = $this->cleDoublon($donnee);
-                if (isset($clesVuesDansLeFichier[$cle])) {
-                    $donnee['statut'] = 'doublon';
-                    $donnee['message'] = 'Cet eleve apparait plusieurs fois dans le fichier importe.';
-                } else {
-                    $clesVuesDansLeFichier[$cle] = true;
+        foreach ($feuilles as $feuille) {
+            foreach ($feuille['affichees'] as $i => $ligne) {
+                $donnee = $this->analyserLigne($ligne, $feuille['brutes'][$i] ?? [], $feuille['mapping'], $correspondance, $etablissementId, $grillesInscription);
+                if ($donnee === null) {
+                    continue;
                 }
-            }
 
-            $resultats[] = $donnee;
+                if ($donnee['statut'] === 'ok') {
+                    $cle = $this->cleDoublon($donnee);
+                    if (isset($clesVuesDansLeFichier[$cle])) {
+                        $donnee['statut'] = 'doublon';
+                        $donnee['message'] = 'Cet élève apparaît plusieurs fois dans le fichier importé.';
+                    } else {
+                        $clesVuesDansLeFichier[$cle] = true;
+                    }
+                }
+
+                $resultats[] = $donnee;
+            }
         }
 
         $valides = collect($resultats)->where('statut', 'ok');
 
         return response()->json([
-            'colonnes_detectees' => array_keys($mapping),
+            // Colonnes reconnues dans au moins une feuille.
+            'colonnes_detectees' => array_values(array_unique(array_merge(...array_map(fn ($f) => array_keys($f['mapping']), $feuilles)))),
+            'feuilles' => array_column($feuilles, 'nom'),
             'lignes' => $resultats,
             'stats' => [
                 'total' => count($resultats),
@@ -571,6 +688,15 @@ class EleveImportController extends Controller
                             : $inscriptionService->inscrire($eleve, $classe, null, 'reinscription');
                         $nouveau = false;
                     } else {
+                        // Import relance (delai depasse, deuxieme onglet) : ne pas creer l'eleve deux fois.
+                        [$deja, $erreurMatricule] = $this->trouverEleveExistant($donnee, $etablissementId);
+                        if ($erreurMatricule !== null) {
+                            throw new \RuntimeException($erreurMatricule);
+                        }
+                        if ($deja) {
+                            throw new \RuntimeException('Élève déjà enregistré dans LAKOLI (import déjà effectué ?) : relancez l\'analyse du fichier.');
+                        }
+
                         if (!empty($donnee['matricule'])) {
                             $matricule = $donnee['matricule'];
                         } else {

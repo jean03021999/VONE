@@ -71,6 +71,25 @@ if (-not (Test-Path $php)) {
     New-Item -ItemType Directory -Force (Split-Path $dossierPhp) | Out-Null
     Copy-Item (Join-Path $paquet $versionPhp) $dossierPhp -Recurse
 }
+# Dossier temporaire propre a PHP pour les fichiers envoyes (photos, logo, justificatifs). Sans
+# lui, Apache (FastCGI) les depose dans C:\Windows\Temp, que le compte Windows ordinaire ne peut
+# pas parcourir : realpath() echoue et Laravel plante (« Path must not be empty »). Refait a
+# chaque mise a jour, le dossier PHP d'une installation existante n'etant pas recopie.
+$tmpPhp = Join-Path $Laragon "tmp\php"
+New-Item -ItemType Directory -Force $tmpPhp | Out-Null
+$iniPhp = Join-Path $dossierPhp "php.ini"
+$contenuIni = [IO.File]::ReadAllText($iniPhp)
+foreach ($cle in "upload_tmp_dir", "sys_temp_dir") {
+    $reglage = "$cle = `"$($tmpPhp -replace '\\', '/')`""
+    $motif = "(?m)^[ \t;]*$cle[ \t]*=[^\r\n]*"
+    if ($contenuIni -match $motif) {
+        $contenuIni = $contenuIni -replace $motif, $reglage
+    } else {
+        $contenuIni += "`r`n$reglage`r`n"
+    }
+}
+[IO.File]::WriteAllText($iniPhp, $contenuIni)
+
 & $php -r "exit(extension_loaded('pdo_pgsql') ? 0 : 1);" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Echec "PHP ne démarre pas ou l'extension PostgreSQL manque. Installez « Microsoft Visual C++ Redistributable 2015-2022 (x64) » puis relancez."

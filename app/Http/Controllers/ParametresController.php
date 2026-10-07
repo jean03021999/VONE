@@ -92,15 +92,17 @@ class ParametresController extends Controller
         $request->validate(['logo' => 'required|image|mimes:png,jpg,jpeg,webp|max:2048']);
 
         $etablissement = $request->user()->etablissement;
-        if ($etablissement->logo_path) {
-            Storage::disk('local')->delete($etablissement->logo_path);
-        }
+        $ancien = $etablissement->logo_path;
         $chemin = $request->file('logo')->storeAs(
             'logos',
             $etablissement->id . '-' . time() . '.' . $request->file('logo')->extension(),
             'local'
         );
         $etablissement->update(['logo_path' => $chemin]);
+        // Ancien logo retire seulement une fois le nouveau enregistre.
+        if ($ancien && $ancien !== $chemin) {
+            Storage::disk('local')->delete($ancien);
+        }
 
         return response()->json($this->ficheEtablissement($etablissement->fresh()));
     }
@@ -157,15 +159,17 @@ class ParametresController extends Controller
         ]);
 
         $user = $request->user();
-        if ($user->photo_path) {
-            Storage::disk('local')->delete($user->photo_path);
-        }
+        $ancienne = $user->photo_path;
         $chemin = $request->file('photo')->storeAs(
             'photos-utilisateurs',
             $user->id . '-' . time() . '.' . $request->file('photo')->extension(),
             'local'
         );
         $user->update(['photo_path' => $chemin]);
+        // Ancienne photo retiree seulement une fois la nouvelle enregistree.
+        if ($ancienne && $ancienne !== $chemin) {
+            Storage::disk('local')->delete($ancienne);
+        }
 
         return response()->json($this->profilPublic($user->fresh()));
     }

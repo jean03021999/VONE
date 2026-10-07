@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Numerotation;
 use App\Models\Enseignant;
 use App\Models\Contrat;
 use Illuminate\Http\Request;
@@ -118,11 +119,7 @@ class EnseignantController extends Controller
         ]);
 
         $etablissementId = $request->user()->etablissement_id;
-        do {
-            $dernier = Enseignant::withTrashed()->where('matricule', 'like', 'ENS-' . date('Y') . '-%')->count();
-            $matricule = 'ENS-' . date('Y') . '-' . str_pad($dernier + 1, 3, '0', STR_PAD_LEFT);
-            $dernier++;
-        } while (Enseignant::withTrashed()->where('matricule', $matricule)->exists());
+        $matricule = Numerotation::matriculeEnseignant($etablissementId);
 
         $enseignant = Enseignant::create([
             'etablissement_id' => $etablissementId,

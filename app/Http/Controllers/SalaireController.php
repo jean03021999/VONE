@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Numerotation;
 use App\Models\Enseignant;
 use App\Models\Salaire;
 use Illuminate\Http\Request;
@@ -93,7 +94,7 @@ class SalaireController extends Controller
         $salaire->montant_net = $salaire->montant_calcule;
         $salaire->save();
 
-        $salaire->update(['reference' => 'SAL-' . $salaire->annee . '-' . $salaire->id]);
+        $salaire->update(['reference' => Numerotation::referenceOperation($salaire->etablissement_id, 'SAL', $salaire->annee, $salaire->id)]);
 
         return response()->json($salaire->load(['enseignant:id,nom,prenom,matricule', 'caissier:id,name']), 201);
     }
@@ -213,7 +214,8 @@ class SalaireController extends Controller
             'observation' => $request->observation,
         ]);
         $salaire->montant_net = $salaire->montant_calcule;
-        $salaire->reference = 'SAL-' . $salaire->annee . '-' . $salaire->id;
+        // Reference deja attribuee (et deja sur la fiche de paie) conservee.
+        $salaire->reference = $salaire->reference ?: Numerotation::referenceOperation($salaire->etablissement_id, 'SAL', $salaire->annee, $salaire->id);
         $salaire->save();
 
         return response()->json($salaire->load(['enseignant:id,nom,prenom,matricule', 'caissier:id,name']));

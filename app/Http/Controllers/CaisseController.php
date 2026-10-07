@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Numerotation;
 use App\Models\Depense;
 use App\Models\JustificatifDepense;
 use App\Models\Paiement;
@@ -187,7 +188,7 @@ class CaisseController extends Controller
                 'etablissement_id' => $etablissementId,
                 'enregistre_par' => $request->user()->id,
             ]);
-            $d->update(['reference' => 'DEP-' . substr((string) $request->date_depense, 0, 4) . '-' . $d->id]);
+            $d->update(['reference' => Numerotation::referenceOperation($etablissementId, 'DEP', substr((string) $request->date_depense, 0, 4), $d->id)]);
 
             return $d;
         });

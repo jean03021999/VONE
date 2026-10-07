@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Numerotation;
 use App\Models\Eleve;
 use App\Models\EleveFiliation;
 use App\Services\InscriptionService;
@@ -155,16 +156,7 @@ class EleveController extends Controller
         $classe = \App\Models\Classe::findOrFail($request->classe_id);
 
         $eleve = DB::transaction(function () use ($request, $etablissementId, $classe) {
-            $prefixeMatricule = 'LAK-' . date('Y') . '-';
-            $dernierNumero = Eleve::withTrashed()
-                ->where('matricule', 'like', $prefixeMatricule . '%')
-                ->get(['matricule'])
-                ->max(fn ($e) => (int) substr($e->matricule, strlen($prefixeMatricule)));
-
-            do {
-                $dernierNumero = ($dernierNumero ?? 0) + 1;
-                $matricule = $prefixeMatricule . str_pad($dernierNumero, 3, '0', STR_PAD_LEFT);
-            } while (Eleve::withTrashed()->where('matricule', $matricule)->exists());
+            $matricule = Numerotation::matriculeEleve($etablissementId);
 
             $eleve = Eleve::create([
                 'etablissement_id' => $etablissementId,

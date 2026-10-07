@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Numerotation;
 use App\Models\TypeFrais;
 use App\Models\GrilleTarifaire;
 use App\Models\FraisEleve;
@@ -461,7 +462,7 @@ class FraisController extends Controller
      * Applique a un eleve les frais d'inscription ou de reinscription de sa classe (grille du type
      * de frais donne) ET enregistre le paiement dans le meme geste : un FraisEleve (unique par
      * eleve / type / session), une echeance unique du montant total due aujourd'hui, un paiement.
-     * La reference du paiement (INS-{annee}-{eleve_id}-{timestamp}) est generee ici et stockee.
+     * La reference du paiement (GSSE-INS-2026-000001, voir App\Services\Numerotation) est generee ici et stockee.
      */
     public function appliquerInscription(Request $request)
     {
@@ -814,7 +815,7 @@ class FraisController extends Controller
             }
 
             $eleveId = $echeance->fraisEleve->eleve_id;
-            $reference = 'PAY-' . now()->year . '-' . $eleveId . '-' . now()->timestamp;
+            $reference = Numerotation::referenceVersement($echeance->fraisEleve->eleve->etablissement_id, 'PAY');
             $paiements = [];
             foreach ($echeances as $ech) {
                 if ($montant <= 0) {

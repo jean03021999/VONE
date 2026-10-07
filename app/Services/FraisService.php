@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Numerotation;
 use App\Models\FraisEleve;
 use App\Models\GrilleTarifaire;
 use App\Models\Inscription;
@@ -221,7 +222,7 @@ class FraisService
                 'montant' => $montant,
                 'moyen_paiement' => $moyenPaiement,
                 'date_paiement' => today()->toDateString(),
-                'reference' => 'INS-' . now()->year . '-' . $inscription->eleve_id . '-' . now()->timestamp,
+                'reference' => Numerotation::referenceVersement($inscription->eleve->etablissement_id, 'INS'),
                 'caissier_id' => $caissierId,
             ]);
 
@@ -296,7 +297,7 @@ class FraisService
             }
         }
 
-        $reference = 'REP-' . now()->year . '-' . $inscription->eleve_id . '-' . now()->timestamp;
+        $reference = Numerotation::referenceVersement($inscription->eleve->etablissement_id, 'REP');
         foreach ($parts as $i => $montant) {
             $echeance = $echeances[$i];
             Paiement::create([

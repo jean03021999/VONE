@@ -7,6 +7,7 @@ use App\Models\Etablissement;
 use App\Models\Role;
 use App\Models\SessionScolaire;
 use App\Models\User;
+use App\Services\Numerotation;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Console\Command;
@@ -118,6 +119,8 @@ class InstallerEtablissement extends Command
             $etablissement = Etablissement::create([
                 'nom' => trim($nom),
                 'code' => $this->codeUnique($nom),
+                // Prefixe des matricules et references, modifiable dans Parametres > Etablissement.
+                'sigle' => Numerotation::initiales($nom),
                 'type' => 'ecole_privee',
                 'ville' => $ville ?: null,
                 'telephone' => $telephone ?: null,

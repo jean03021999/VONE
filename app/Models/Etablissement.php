@@ -10,7 +10,7 @@ class Etablissement extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'nom', 'code', 'type', 'pays', 'ville', 'adresse',
+        'nom', 'code', 'sigle', 'type', 'pays', 'ville', 'adresse',
         'telephone', 'email', 'logo_path', 'langue_principale',
         'devise', 'statut', 'date_fin_essai',
         'quartier', 'region', 'prefecture', 'coordonnees_gps', 'telephone_secondaire', 'whatsapp_relance',

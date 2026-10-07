@@ -11,6 +11,7 @@ use App\Models\SessionScolaire;
 use App\Services\CorrespondanceClasses;
 use App\Services\FraisService;
 use App\Services\InscriptionService;
+use App\Services\Numerotation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -880,7 +881,7 @@ class EleveImportController extends Controller
         // COUNT()+1, un trou dans la sequence (eleve supprime, import partiel anterieur)
         // fait retomber sur un matricule deja pris et provoque une violation de
         // contrainte unique qui interrompt tout l'import en cours de route.
-        $prefixeMatricule = 'LAK-' . date('Y') . '-';
+        $prefixeMatricule = Numerotation::prefixeMatriculeEleve($etablissementId);
         $dernierNumero = Eleve::withTrashed()
             ->where('matricule', 'like', $prefixeMatricule . '%')
             ->get(['matricule'])

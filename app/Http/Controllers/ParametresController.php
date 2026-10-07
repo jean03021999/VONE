@@ -8,6 +8,7 @@ use App\Models\Etablissement;
 use App\Models\Role;
 use App\Models\SessionScolaire;
 use App\Models\User;
+use App\Services\Numerotation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -78,9 +79,15 @@ class ParametresController extends Controller
             'capacite_accueil' => 'nullable|integer|min:0|max:100000',
             'agrement' => 'nullable|string|max:255',
             'slogan' => 'nullable|string|max:255',
-        ]);
+            // Prefixe des matricules et references (GSSE-2026-001) : 2 a 8 lettres ou chiffres.
+            'sigle' => ['nullable', 'string', 'regex:/^[A-Za-z0-9]{2,8}$/'],
+        ], ['sigle.regex' => 'Le sigle doit faire 2 à 8 lettres ou chiffres, sans espace ni accent (ex. GSSE).']);
 
         $etablissement = $request->user()->etablissement;
+        if (array_key_exists('sigle', $donnees)) {
+            // Vide : les initiales du nom. Seuls les prochains matricules et references changent.
+            $donnees['sigle'] = $donnees['sigle'] ? strtoupper($donnees['sigle']) : Numerotation::initiales($donnees['nom']);
+        }
         $etablissement->update($donnees);
 
         return response()->json($this->ficheEtablissement($etablissement->fresh()));
@@ -334,6 +341,7 @@ class ParametresController extends Controller
             'id' => $e->id,
             'nom' => $e->nom,
             'code' => $e->code,
+            'sigle' => $e->sigle ?: Numerotation::initiales($e->nom),
             'type' => $e->type,
             'ville' => $e->ville,
             'quartier' => $e->quartier,

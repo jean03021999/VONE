@@ -6,6 +6,7 @@ use App\Models\Eleve;
 use App\Models\Classe;
 use App\Models\GrilleTarifaire;
 use App\Models\Inscription;
+use App\Models\Paiement;
 use App\Models\SessionScolaire;
 use App\Services\CorrespondanceClasses;
 use App\Services\FraisService;
@@ -36,6 +37,19 @@ class EleveImportController extends Controller
         'fraisdereinscription' => 'frais_inscription',
         'fraisreinscription' => 'frais_inscription',
         'montantinscription' => 'frais_inscription',
+        // Scolarite deja payee avant LAKOLI (total), apres les frais d'inscription : « Frais
+        // d'inscription payés » reste un frais d'inscription.
+        'scolaritepayee' => 'scolarite_payee',
+        'scolaritepaye' => 'scolarite_payee',
+        'scolariteversee' => 'scolarite_payee',
+        'scolaritedejapayee' => 'scolarite_payee',
+        'totalpaye' => 'scolarite_payee',
+        'totalverse' => 'scolarite_payee',
+        'montantpaye' => 'scolarite_payee',
+        'montantverse' => 'scolarite_payee',
+        'dejapaye' => 'scolarite_payee',
+        'sommepayee' => 'scolarite_payee',
+        'sommeversee' => 'scolarite_payee',
         'matricule' => 'matricule',
         'datedenaissance' => 'date_naissance',
         'datenaissance' => 'date_naissance',
@@ -88,6 +102,12 @@ class EleveImportController extends Controller
 
     /** Nombre de lignes parcourues pour trouver la ligne d'en-tetes (titre eventuel au-dessus). */
     private const LIGNES_RECHERCHE_ENTETES = 10;
+
+    /** Colonnes de paiement par mois (« Octobre », « Janv », « Mars 2027 »). */
+    private const MOIS = 'janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|sep|octobre|oct|novembre|nov|decembre|dec';
+
+    /** Grille de scolarite par « classe|type d'inscription », le temps d'une analyse. */
+    private array $grillesScolarite = [];
 
     /**
      * Normalise un texte : minuscule, sans accent, sans espace/ponctuation.
@@ -191,6 +211,20 @@ class EleveImportController extends Controller
             if (in_array($normalise, $this->variantesPrenom, true) && !isset($mapping['prenom'])) {
                 $mapping['prenom'] = $index;
                 continue;
+            }
+
+            // Paiements de scolarite par tranche (« Tranche 1 », « T2 », « 3ème trimestre ») ou
+            // par mois (« Octobre ») ; jamais une colonne de date (« Date tranche 1 »).
+            if (!str_contains($normalise, 'date')) {
+                if (preg_match('/^(?:tranche|trimestre|versement|echeance|t)(\d{1,2})(?!\d)/', $normalise, $m)
+                    || preg_match('/^(\d{1,2})(?:er|ere|iere|eme|e)?(?:tranche|trimestre|versement|echeance)/', $normalise, $m)) {
+                    $mapping['tranches'][(int) $m[1]] ??= $index;
+                    continue;
+                }
+                if (preg_match('/^(' . self::MOIS . ')(\d{2}|\d{4})?$/', $normalise)) {
+                    $mapping['mois'][trim((string) $entete)] = $index;
+                    continue;
+                }
             }
 
             $champExact = $this->synonymesExacts[$normalise] ?? null;
@@ -325,11 +359,72 @@ class EleveImportController extends Controller
     private function lireMontant(string $valeur): float|null|false
     {
         $v = preg_replace('/(gnf|fg|\s|\x{00A0}|\x{202F})/iu', '', $valeur);
-        if ($v === '' || $v === '0') {
+        // « - », « — », « néant » : rien paye (les registres marquent ainsi les mois non payes).
+        if ($v === '' || preg_match('/^(0+|[-–—_.]+|neant|néant|rien|nul)$/iu', $v)) {
             return null;
         }
         $v = str_replace([',', '.'], '', $v);
         return ctype_digit($v) ? (float) $v : false;
+    }
+
+    /**
+     * Montant de la cellule de la colonne $index : valeur brute si la cellule est numerique (le
+     * texte affiche « 200,000.00 » serait lu 20 000 000), sinon le texte. null si vide, false si illisible.
+     */
+    private function lireMontantCellule(array $ligne, array $ligneBrute, ?int $index): float|null|false
+    {
+        if ($index === null) {
+            return null;
+        }
+        $brut = $ligneBrute[$index] ?? null;
+        if (is_int($brut) || is_float($brut)) {
+            return $brut > 0 ? (float) $brut : ($brut == 0 ? null : false);
+        }
+        return $this->lireMontant(trim((string) ($ligne[$index] ?? '')));
+    }
+
+    /**
+     * Scolarite deja payee, lue dans l'une des trois formes : colonnes par tranche (« Tranche 1 »,
+     * « 2ème trimestre »), colonnes par mois (« Octobre »...) additionnees, ou total (« Scolarité
+     * payée »). Une colonne de total presente a cote des tranches ou des mois doit leur etre egale.
+     * Retourne ['total' => float|null, 'par_tranche' => [numero => montant]|null] ou un message d'erreur.
+     */
+    private function lireScolarite(array $ligne, array $ligneBrute, array $mapping): array|string
+    {
+        $parTranche = [];
+        foreach ($mapping['tranches'] ?? [] as $numero => $index) {
+            $montant = $this->lireMontantCellule($ligne, $ligneBrute, $index);
+            if ($montant === false) {
+                return "Montant de la tranche {$numero} illisible : " . trim((string) ($ligne[$index] ?? ''));
+            }
+            if ($montant !== null) {
+                $parTranche[$numero] = $montant;
+            }
+        }
+
+        $sommeMois = null;
+        foreach ($mapping['mois'] ?? [] as $libelle => $index) {
+            $montant = $this->lireMontantCellule($ligne, $ligneBrute, $index);
+            if ($montant === false) {
+                return "Montant du mois « {$libelle} » illisible : " . trim((string) ($ligne[$index] ?? ''));
+            }
+            if ($montant !== null) {
+                $sommeMois = ($sommeMois ?? 0) + $montant;
+            }
+        }
+
+        $total = $this->lireMontantCellule($ligne, $ligneBrute, $mapping['scolarite_payee'] ?? null);
+        if ($total === false) {
+            return 'Scolarité payée illisible : ' . $this->extraireValeur($ligne, $mapping, 'scolarite_payee');
+        }
+
+        $detail = $parTranche !== [] ? array_sum($parTranche) : $sommeMois;
+        if ($detail !== null && $total !== null && abs($detail - $total) >= 1) {
+            $source = $parTranche !== [] ? 'des tranches' : 'des mois';
+            return 'Total payé (' . (int) $total . " GNF) différent de la somme {$source} (" . (int) $detail . ' GNF) : corrigez le fichier.';
+        }
+
+        return ['total' => $detail ?? $total, 'par_tranche' => $parTranche !== [] ? $parTranche : null];
     }
 
     private function verifierChampsObligatoires(array $donnee): ?string
@@ -468,6 +563,8 @@ class EleveImportController extends Controller
             'frais_inscription_brut' => $this->extraireValeur($ligne, $mapping, 'frais_inscription'),
             'type_inscription' => null,
             'frais_inscription' => null,
+            'scolarite_payee' => null,
+            'scolarite_par_tranche' => null,
             'eleve_existant_id' => null,
         ];
 
@@ -540,11 +637,7 @@ class EleveImportController extends Controller
             $donnee['type_inscription'] = $typeLu ?? 'inscription';
         }
 
-        // Cellule numerique : valeur brute (le texte affiche « 200,000.00 » serait lu 20 000 000).
-        $montantBrut = $this->extraireBrut($ligneBrute, $mapping, 'frais_inscription');
-        $montant = is_int($montantBrut) || is_float($montantBrut)
-            ? ($montantBrut > 0 ? (float) $montantBrut : ($montantBrut == 0 ? null : false))
-            : $this->lireMontant($donnee['frais_inscription_brut']);
+        $montant = $this->lireMontantCellule($ligne, $ligneBrute, $mapping['frais_inscription'] ?? null);
         if ($montant === false) {
             $donnee['statut'] = 'erreur';
             $donnee['message'] = "Frais d'inscription illisibles : " . $donnee['frais_inscription_brut'];
@@ -564,6 +657,44 @@ class EleveImportController extends Controller
                 return $donnee;
             }
             $donnee['frais_inscription'] = $montant;
+        }
+
+        // Scolarite deja payee avant LAKOLI : reprise sur les echeances de la grille de la classe.
+        $scolarite = $this->lireScolarite($ligne, $ligneBrute, $mapping);
+        if (is_string($scolarite)) {
+            $donnee['statut'] = 'erreur';
+            $donnee['message'] = $scolarite;
+            return $donnee;
+        }
+        if ($scolarite['total'] !== null) {
+            $cle = $classe->id . '|' . $donnee['type_inscription'];
+            $grille = $this->grillesScolarite[$cle] ??= (new FraisService())->grilleScolarite($classe->id, $classe->session_scolaire_id, $donnee['type_inscription']);
+            if (! $grille) {
+                $donnee['statut'] = 'erreur';
+                $donnee['message'] = "Aucune grille « Scolarité » active pour la classe {$classe->nom} : impossible d'enregistrer la scolarité payée.";
+                return $donnee;
+            }
+            if ($scolarite['total'] > (float) $grille->montant) {
+                $donnee['statut'] = 'erreur';
+                $donnee['message'] = 'Scolarité payée (' . (int) $scolarite['total'] . ' GNF) supérieure à la scolarité de la classe (' . (int) $grille->montant . ' GNF).';
+                return $donnee;
+            }
+            $echeancesGrille = $grille->echeances->sortBy([['date_limite', 'asc'], ['id', 'asc']])->values();
+            foreach ($scolarite['par_tranche'] ?? [] as $numero => $montantTranche) {
+                $echeance = $echeancesGrille->get($numero - 1);
+                if (! $echeance) {
+                    $donnee['statut'] = 'erreur';
+                    $donnee['message'] = "Tranche {$numero} payée, mais la scolarité de {$classe->nom} n'a que {$echeancesGrille->count()} échéance(s).";
+                    return $donnee;
+                }
+                if ($montantTranche > (float) $echeance->montant) {
+                    $donnee['statut'] = 'erreur';
+                    $donnee['message'] = "Tranche {$numero} : " . (int) $montantTranche . ' GNF payés pour ' . (int) $echeance->montant . " GNF dus ({$echeance->libelle}).";
+                    return $donnee;
+                }
+            }
+            $donnee['scolarite_payee'] = $scolarite['total'];
+            $donnee['scolarite_par_tranche'] = $scolarite['par_tranche'];
         }
 
         $donnee['statut'] = 'ok';
@@ -665,6 +796,8 @@ class EleveImportController extends Controller
                 'anciens_lakoli' => $valides->whereNotNull('eleve_existant_id')->count(),
                 'frais_payes' => $valides->whereNotNull('frais_inscription')->count(),
                 'montant_frais_payes' => $valides->sum('frais_inscription'),
+                'scolarites_payees' => $valides->whereNotNull('scolarite_payee')->count(),
+                'montant_scolarite_payee' => $valides->sum('scolarite_payee'),
             ],
         ]);
     }
@@ -679,18 +812,18 @@ class EleveImportController extends Controller
         $feuille = $spreadsheet->getActiveSheet();
         $feuille->setTitle('Eleves');
 
-        $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere', 'Nom du tuteur', 'Telephone du tuteur', "Lien avec l'eleve", "Type d'inscription", "Frais d'inscription payes"];
+        $entetes = ['Nom', 'Prenom', 'Matricule', 'Classe', 'Date de naissance', 'Lieu de naissance', 'Nom du pere', 'Telephone du pere', 'Nom de la mere', 'Telephone de la mere', 'Nom du tuteur', 'Telephone du tuteur', "Lien avec l'eleve", "Type d'inscription", "Frais d'inscription payes", 'Scolarite payee'];
         $feuille->fromArray($entetes, null, 'A1');
 
         // Exemples avec de vraies classes de l'ecole (nom exact, puis forme abregee acceptee).
         $classeA = $classes->first() ?? '7ème Année';
         $classeB = $classes->get(intdiv($classes->count(), 2)) ?? $classeA;
         $exemples = [
-            ['Diallo', 'Aminata', '', $classeA, '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305', '', '', '', 'Inscription', ''],
-            ['Camara', 'Ibrahima', '', $classeB, '05/09/2013', 'Kindia', 'Sekou Camara', '+224622000111', '', '', '', '', '', 'Réinscription', ''],
+            ['Diallo', 'Aminata', '', $classeA, '12/03/2014', 'Conakry', 'Mamadou Diallo', '+224601020304', 'Fatoumata Bah', '+224601020305', '', '', '', 'Inscription', '', ''],
+            ['Camara', 'Ibrahima', '', $classeB, '05/09/2013', 'Kindia', 'Sekou Camara', '+224622000111', '', '', '', '', '', 'Réinscription', '', '1500000'],
         ];
         $feuille->fromArray($exemples, null, 'A2');
-        foreach (range('A', 'O') as $colonne) {
+        foreach (range('A', 'P') as $colonne) {
             $feuille->getColumnDimension($colonne)->setAutoSize(true);
         }
 
@@ -712,6 +845,16 @@ class EleveImportController extends Controller
             ['6e A, 6ème B  →  la classe de ce groupe (si l\'école a plusieurs groupes)'],
             ['Une écriture qui correspond à plusieurs classes (« 12e », « Tle S ») est refusée : précisez la série ou le groupe.'],
         ], null, 'A' . ($ligne + 1));
+
+        // Scolarite deja payee : les trois formes reconnues.
+        $ligne += 10;
+        $onglet->setCellValue("A{$ligne}", 'Scolarité déjà payée (montants en GNF, enregistrés comme « Reprise », hors caisse) :');
+        $onglet->getStyle("A{$ligne}")->getFont()->setBold(true);
+        $onglet->fromArray([
+            ['« Scolarite payee » : total payé, réparti sur les tranches de la plus ancienne à la plus récente'],
+            ['ou « Tranche 1 », « Tranche 2 », « Tranche 3 » : montant payé sur chaque tranche'],
+            ['ou une colonne par mois (« Octobre », « Novembre »...) : les mois sont additionnés'],
+        ], null, 'A' . ($ligne + 1));
         $onglet->getColumnDimension('A')->setAutoSize(true);
         $spreadsheet->setActiveSheetIndex(0);
 
@@ -728,6 +871,8 @@ class EleveImportController extends Controller
         $importes = 0;
         $reinscrits = 0;
         $fraisEnregistres = 0;
+        $scolaritesReprises = 0;
+        $montantScolariteRepris = 0.0;
         $erreurs = [];
 
         // Calcule le numero de depart une seule fois (MAX existant, pas COUNT) pour
@@ -762,10 +907,30 @@ class EleveImportController extends Controller
             $montantFrais = isset($donnee['frais_inscription']) && is_numeric($donnee['frais_inscription'])
                 ? (float) $donnee['frais_inscription']
                 : 0.0;
+            $montantScolarite = isset($donnee['scolarite_payee']) && is_numeric($donnee['scolarite_payee'])
+                ? (float) $donnee['scolarite_payee']
+                : 0.0;
+            // Tranches : numero >= 1 => montant > 0, dont la somme doit faire le total annonce.
+            $parTranche = null;
+            if (is_array($donnee['scolarite_par_tranche'] ?? null)) {
+                $parTranche = [];
+                foreach ($donnee['scolarite_par_tranche'] as $numero => $montant) {
+                    if (ctype_digit((string) $numero) && (int) $numero >= 1 && is_numeric($montant) && (float) $montant > 0) {
+                        $parTranche[(int) $numero] = (float) $montant;
+                    }
+                }
+                if ($parTranche === [] || abs(array_sum($parTranche) - $montantScolarite) >= 1) {
+                    $erreurs[] = [
+                        'nom' => trim(($donnee['nom'] ?? '') . ' ' . ($donnee['prenom'] ?? '')),
+                        'message' => 'Détail des tranches payées incohérent : relancez l\'analyse du fichier.',
+                    ];
+                    continue;
+                }
+            }
 
             try {
                 $resultat = DB::transaction(function () use (
-                    $donnee, $classe, $etablissementId, $type, $montantFrais, $inscriptionService, $fraisService,
+                    $donnee, $classe, $etablissementId, $type, $montantFrais, $montantScolarite, $parTranche, $inscriptionService, $fraisService,
                     $request, $prefixeMatricule, &$dernierNumero
                 ) {
                     if (!empty($donnee['eleve_existant_id'])) {
@@ -830,7 +995,8 @@ class EleveImportController extends Controller
                         $nouveau = true;
                     }
 
-                    // Frais d'inscription / reinscription deja encaisses par l'ecole.
+                    // Frais d'inscription / reinscription deja encaisses par l'ecole, avant LAKOLI :
+                    // reprise, hors caisse du jour de l'import.
                     $fraisOk = false;
                     if ($montantFrais > 0) {
                         $typeFrais = $fraisService->typeFraisInscription($etablissementId, $type);
@@ -842,11 +1008,19 @@ class EleveImportController extends Controller
                             throw new \RuntimeException('Frais payés supérieurs aux frais de la classe (' . (int) $grille->montant . ' GNF).');
                         }
                         $fraisOk = $fraisService->encaisserFraisInscription(
-                            $inscription, $typeFrais, $grille, $montantFrais, 'especes', $request->user()->id
+                            $inscription, $typeFrais, $grille, $montantFrais, Paiement::MOYEN_REPRISE, $request->user()->id
                         ) !== null;
                     }
 
-                    return ['nouveau' => $nouveau, 'frais' => $fraisOk];
+                    // Scolarite deja payee : reverifiee ici (les lignes viennent du navigateur).
+                    $scolariteReprise = 0.0;
+                    if ($montantScolarite > 0) {
+                        $scolariteReprise = $fraisService->reprendrePaiementsScolarite(
+                            $inscription, $montantScolarite, $parTranche, $request->user()->id
+                        );
+                    }
+
+                    return ['nouveau' => $nouveau, 'frais' => $fraisOk, 'scolarite' => $scolariteReprise];
                 });
             } catch (\Throwable $e) {
                 $erreurs[] = [
@@ -860,12 +1034,18 @@ class EleveImportController extends Controller
             if ($resultat['frais']) {
                 $fraisEnregistres++;
             }
+            if ($resultat['scolarite'] > 0) {
+                $scolaritesReprises++;
+                $montantScolariteRepris += $resultat['scolarite'];
+            }
         }
 
         return response()->json([
             'importes' => $importes,
             'reinscrits' => $reinscrits,
             'frais_enregistres' => $fraisEnregistres,
+            'scolarites_reprises' => $scolaritesReprises,
+            'montant_scolarite_repris' => $montantScolariteRepris,
             'erreurs' => $erreurs,
         ]);
     }

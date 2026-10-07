@@ -566,7 +566,8 @@ class FraisController extends Controller
     {
         $etablissementId = $request->user()->etablissement_id;
 
-        $paiements = Paiement::whereHas('eleve', function ($q) use ($etablissementId) {
+        // Reprises de l'existant (import Excel) : deja encaissees avant LAKOLI, hors journal de caisse.
+        $paiements = Paiement::where('moyen_paiement', '!=', Paiement::MOYEN_REPRISE)->whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
             ->with(['eleve.inscriptionActive.classe', 'echeanceEleve.fraisEleve.typeFrais', 'caissier:id,name', 'annulateur:id,name'])
@@ -657,7 +658,7 @@ class FraisController extends Controller
         $nombreVersements = 5;
 
         // Assez de paiements pour reconstituer 5 versements (un versement en compte rarement plus de 4).
-        $paiements = Paiement::valides()->whereHas('eleve', function ($q) use ($etablissementId) {
+        $paiements = Paiement::encaisses()->whereHas('eleve', function ($q) use ($etablissementId) {
             $q->where('etablissement_id', $etablissementId);
         })
             ->with([

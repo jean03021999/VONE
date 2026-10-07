@@ -228,4 +228,90 @@ class FraisService
             return compact('frais', 'paiement');
         });
     }
+
+    /**
+     * Grille de scolarite (type de frais dont le nom commence par « Scolarité ») qu'appliquera
+     * l'inscription d'un eleve dans cette classe : celle de son public (nouveau / ancien) avant
+     * celle de tous les eleves, comme appliquerGrillesAInscription.
+     */
+    public function grilleScolarite(int $classeId, int $sessionId, string $typeInscription): ?GrilleTarifaire
+    {
+        $public = $typeInscription === 'reinscription' ? 'ancien' : 'nouveau';
+
+        return GrilleTarifaire::where('classe_id', $classeId)
+            ->where('session_scolaire_id', $sessionId)
+            ->where('actif', true)
+            ->whereIn('applicable_a', [$public, 'tous'])
+            ->with('typeFrais', 'echeances')
+            ->get()
+            ->filter(fn ($g) => Str::of($g->typeFrais?->nom ?? '')->ascii()->lower()->startsWith('scolarite'))
+            ->sortBy(fn ($g) => $g->applicable_a === 'tous' ? 1 : 0)
+            ->first();
+    }
+
+    /**
+     * Reprise des paiements de scolarite faits avant LAKOLI (import Excel), sur le frais de
+     * scolarite cree a l'inscription. $parTranche [numero de tranche (1, 2...) => montant] vise des
+     * echeances precises (dans l'ordre des dates limites) ; sinon $total solde les echeances de la
+     * plus ancienne a la plus recente. Paiements en moyen « reprise » : hors caisse.
+     * Leve une RuntimeException si un montant depasse ce qui reste a payer. Retourne le total repris.
+     */
+    public function reprendrePaiementsScolarite(Inscription $inscription, float $total, ?array $parTranche, ?int $caissierId): float
+    {
+        $frais = FraisEleve::where('eleve_id', $inscription->eleve_id)
+            ->where('session_scolaire_id', $inscription->session_scolaire_id)
+            ->with('typeFrais')
+            ->get()
+            ->first(fn ($f) => Str::of($f->typeFrais?->nom ?? '')->ascii()->lower()->startsWith('scolarite'));
+        if (! $frais) {
+            throw new \RuntimeException("Aucun frais de scolarité pour cet élève : vérifiez la grille de sa classe.");
+        }
+
+        $echeances = $frais->echeances()->orderBy('date_limite')->orderBy('id')->lockForUpdate()->get()->values();
+
+        // Montant a poser sur chaque echeance (index => montant).
+        $parts = [];
+        if ($parTranche) {
+            foreach ($parTranche as $numero => $montant) {
+                $echeance = $echeances->get($numero - 1);
+                if (! $echeance) {
+                    throw new \RuntimeException("Tranche {$numero} payée, mais la scolarité de la classe n'a que {$echeances->count()} échéance(s).");
+                }
+                if ($montant > max(0, (float) $echeance->solde)) {
+                    throw new \RuntimeException("Tranche {$numero} : " . (int) $montant . ' GNF payés pour ' . (int) $echeance->solde . ' GNF dus.');
+                }
+                $parts[$numero - 1] = $montant;
+            }
+        } else {
+            $reste = $total;
+            foreach ($echeances as $i => $echeance) {
+                $part = min($reste, max(0, (float) $echeance->solde));
+                if ($part > 0) {
+                    $parts[$i] = $part;
+                    $reste -= $part;
+                }
+            }
+            if ($reste > 0) {
+                throw new \RuntimeException('Scolarité payée (' . (int) $total . ' GNF) supérieure à la scolarité de la classe (' . (int) $echeances->sum(fn ($e) => max(0, (float) $e->solde)) . ' GNF restants).');
+            }
+        }
+
+        $reference = 'REP-' . now()->year . '-' . $inscription->eleve_id . '-' . now()->timestamp;
+        foreach ($parts as $i => $montant) {
+            $echeance = $echeances[$i];
+            Paiement::create([
+                'eleve_id' => $inscription->eleve_id,
+                'echeance_eleve_id' => $echeance->id,
+                'libelle' => $echeance->libelle,
+                'montant' => $montant,
+                'moyen_paiement' => Paiement::MOYEN_REPRISE,
+                'date_paiement' => today()->toDateString(),
+                'reference' => $reference,
+                'caissier_id' => $caissierId,
+                'observation' => "Reprise de l'existant (payé avant LAKOLI, import Excel)",
+            ]);
+        }
+
+        return array_sum($parts);
+    }
 }

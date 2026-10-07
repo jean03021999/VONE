@@ -48,7 +48,7 @@ class CaisseController extends Controller
         $debut = $request->query('debut');
         $fin = $request->query('fin');
 
-        $encaissements = fn () => Paiement::valides()->whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId));
+        $encaissements = fn () => Paiement::encaisses()->whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId));
         $salaires = fn () => Salaire::where('etablissement_id', $etablissementId)->where('statut', 'paye');
         $depenses = fn () => Depense::valides()->where('etablissement_id', $etablissementId);
 

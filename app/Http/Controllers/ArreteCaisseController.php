@@ -107,7 +107,7 @@ class ArreteCaisseController extends Controller
      */
     private function situation(int $etablissementId, string $date): array
     {
-        $paiements = fn () => Paiement::valides()->whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId));
+        $paiements = fn () => Paiement::encaisses()->whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId));
         $salaires = fn () => Salaire::where('etablissement_id', $etablissementId)->where('statut', 'paye');
         $depenses = fn () => Depense::valides()->where('etablissement_id', $etablissementId);
         $parMoyen = fn ($requete, string $colonne) => $requete->groupBy('moyen_paiement')->selectRaw("moyen_paiement, SUM({$colonne}) as total")->pluck('total', 'moyen_paiement');

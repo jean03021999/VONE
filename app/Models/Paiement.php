@@ -15,10 +15,19 @@ class Paiement extends Model
         'annule_le' => 'datetime',
     ];
 
+    /** Paiement encaisse avant LAKOLI et repris a l'import Excel : hors caisse. */
+    public const MOYEN_REPRISE = 'reprise';
+
     /** Paiements comptant reellement (hors annules). */
     public function scopeValides($query)
     {
         return $query->whereNull('annule_le');
+    }
+
+    /** Argent passe par la caisse de LAKOLI : paiements valides, hors reprises de l'existant. */
+    public function scopeEncaisses($query)
+    {
+        return $query->whereNull('annule_le')->where('moyen_paiement', '!=', self::MOYEN_REPRISE);
     }
 
     public function annulateur()

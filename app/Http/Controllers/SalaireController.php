@@ -73,6 +73,9 @@ class SalaireController extends Controller
         if ($payer && ($refus = $this->controlerAvance($request, (int) $request->mois, (int) $request->annee))) {
             return $refus;
         }
+        if ($payer) {
+            \App\Models\ArreteCaisse::exigerJourOuvert($etablissementId, today());
+        }
 
         $salaire = new Salaire([
             'enseignant_id' => $enseignant->id,
@@ -136,6 +139,7 @@ class SalaireController extends Controller
         if ($refus = $this->controlerAvance($request, $salaire->mois, $salaire->annee)) {
             return $refus;
         }
+        \App\Models\ArreteCaisse::exigerJourOuvert($etablissementId, today());
 
         $salaire->update([
             'statut' => 'paye',
@@ -237,6 +241,7 @@ class SalaireController extends Controller
                 ? 'Ce salaire est déjà annulé.'
                 : "Ce salaire n'est pas payé : modifiez-le ou supprimez-le."], 422);
         }
+        \App\Models\ArreteCaisse::exigerJourOuvert($salaire->etablissement_id, $salaire->date_paiement);
 
         $salaire->update([
             'statut' => 'annule',

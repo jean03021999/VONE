@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\Numerotation;
+use App\Models\ArreteCaisse;
 use App\Models\Depense;
 use App\Models\JustificatifDepense;
 use App\Models\Paiement;
@@ -183,6 +184,7 @@ class CaisseController extends Controller
         ], $this->messagesDepense());
 
         $etablissementId = $request->user()->etablissement_id;
+        ArreteCaisse::exigerJourOuvert($etablissementId, $request->date_depense);
         $depense = DB::transaction(function () use ($request, $etablissementId) {
             $d = Depense::create($this->champsDepense($request) + [
                 'etablissement_id' => $etablissementId,
@@ -206,6 +208,15 @@ class CaisseController extends Controller
     {
         $depense = $this->depenseModifiable($request, $id);
         $request->validate($this->reglesDepense(), $this->messagesDepense());
+        // Montant, moyen ou date changes : ni l'ancien ni le nouveau jour ne doivent etre arretes
+        // (le libelle, le beneficiaire ou l'observation se corrigent toujours).
+        $changeLaCaisse = abs((float) $depense->montant - (float) $request->montant) >= 0.01
+            || $depense->moyen_paiement !== $request->moyen_paiement
+            || substr((string) $depense->date_depense, 0, 10) !== substr((string) $request->date_depense, 0, 10);
+        if ($changeLaCaisse) {
+            ArreteCaisse::exigerJourOuvert($depense->etablissement_id, $depense->date_depense);
+            ArreteCaisse::exigerJourOuvert($depense->etablissement_id, $request->date_depense);
+        }
         $depense->update($this->champsDepense($request));
 
         return response()->json([
@@ -277,6 +288,7 @@ class CaisseController extends Controller
         if ($depense->annule_le) {
             return response()->json(['message' => 'Cette dépense est déjà annulée.'], 422);
         }
+        ArreteCaisse::exigerJourOuvert($depense->etablissement_id, $depense->date_depense);
 
         $depense->update([
             'annule_le' => now(),

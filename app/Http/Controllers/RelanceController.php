@@ -34,25 +34,37 @@ class RelanceController extends Controller
             ->get()
             ->groupBy('eleve_id');
 
+        // Reste des annees passees : toujours en retard, ajoute au montant du (voir Eleve::arrieresDe).
+        $arrieres = Eleve::arrieresDe($eleves->pluck('id'));
+
         $lignes = [];
         foreach ($eleves as $eleve) {
             $echeances = $scolarite[$eleve->id]['echeances'] ?? collect();
-            if ($echeances->isEmpty()) {
+            $arriere = (float) ($arrieres[$eleve->id]['montant'] ?? 0);
+            if ($echeances->isEmpty() && $arriere <= 0) {
                 continue;
             }
-            $sessionId = $scolarite[$eleve->id]['session_id'];
+            $sessionId = $scolarite[$eleve->id]['session_id'] ?? null;
             $resteAnnee = $echeances->sum(fn ($e) => max(0, $e->montant - $e->montant_paye));
-            if ($resteAnnee <= 0) {
+            if ($resteAnnee <= 0 && $arriere <= 0) {
                 continue;
             }
 
-            if (Eleve::statutDepuis($echeances, $sessionId, $aujourdhui) === 'en_retard') {
+            if ($echeances->isNotEmpty() && Eleve::statutDepuis($echeances, $sessionId, $aujourdhui) === 'en_retard') {
                 $retard = Eleve::detailRetardDepuis($echeances, $sessionId, $aujourdhui);
                 $motif = 'retard';
-                $montant = $retard['montant_du'] ?? 0;
+                $montant = ($retard['montant_du'] ?? 0) + $arriere;
                 $echeance = $retard['echeance'] ?? null;
                 $dateLimite = $retard['date_limite'] ?? null;
                 $nombre = max(1, $retard['nombre_echeances'] ?? 1);
+            } elseif ($arriere > 0) {
+                // Seule la dette d'une annee passee est en retard : depuis la fin de cette annee.
+                $sessionsDues = $arrieres[$eleve->id]['sessions'];
+                $motif = 'retard';
+                $montant = $arriere;
+                $echeance = 'Arriéré ' . implode(', ', array_column($sessionsDues, 'libelle'));
+                $dateLimite = $sessionsDues[0]['date_fin'];
+                $nombre = count($sessionsDues);
             } else {
                 // Rappel : echeances non soldees dont la date limite tombe dans l'horizon choisi.
                 $proches = $echeances
@@ -85,6 +97,8 @@ class RelanceController extends Controller
                 'nombre_echeances' => $nombre,
                 'montant_du' => (float) $montant,
                 'reste_annee' => (float) $resteAnnee,
+                // Part du montant du venant des annees passees.
+                'arrieres' => $arriere,
                 'contacts' => $eleve->filiations
                     ->filter(fn ($f) => $f->telephone || $f->nom_complet)
                     ->sortBy(fn ($f) => ['tuteur' => 0, 'pere' => 1, 'mere' => 2][$f->type_lien] ?? 3)

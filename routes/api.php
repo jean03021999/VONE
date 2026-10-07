@@ -220,6 +220,7 @@ Route::middleware(['auth:sanctum'])->prefix('caisse')->group(function () {
     Route::get('/arretes', [ArreteCaisseController::class, 'index'])->middleware('permission:frais.voir');
     Route::get('/arretes/preparer', [ArreteCaisseController::class, 'preparer'])->middleware('permission:frais.voir');
     Route::post('/arretes', [ArreteCaisseController::class, 'store'])->middleware('permission:frais.paiement.enregistrer');
+    Route::post('/arretes/rouvrir', [ArreteCaisseController::class, 'rouvrir'])->middleware('permission:frais.paiement.enregistrer');
     Route::get('/evolution', [RapportFinancierController::class, 'evolution'])->middleware('permission:frais.voir');
 });
 Route::get('/caisse/justificatifs/{id}/fichier', [CaisseController::class, 'fichierJustificatif'])->middleware('signed')->name('justificatifs.fichier');

@@ -106,7 +106,9 @@ class BulletinController extends Controller
                 $notesValides = $notesMatiere->filter(fn($n) => $n->valeur !== null && $n->statut_presence === 'present');
                 if ($notesValides->isEmpty()) continue; // matiere exclue (tout absent)
 
-                $moyenneMatiere = round($notesValides->avg('valeur'), 2);
+                // Chaque note ramenee sur 20 selon le bareme de son evaluation (8/10 = 16/20),
+                // comme la moyenne des statistiques enseignant.
+                $moyenneMatiere = round($notesValides->avg(fn ($n) => (float) $n->valeur * 20 / max(1, (float) $n->evaluation->bareme)), 2);
                 $compteDansMoyenne = $this->compteDansMoyenne($matiereId, $classe);
                 $coefficient = $compteDansMoyenne ? $this->coefficientPour($matiereId, $classe) : 0;
                 $valeurPonderee = round($moyenneMatiere * $coefficient, 2);

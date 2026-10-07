@@ -27,6 +27,11 @@ class FraisEleve extends Model
         return $this->belongsTo(TypeFrais::class);
     }
 
+    public function sessionScolaire()
+    {
+        return $this->belongsTo(SessionScolaire::class);
+    }
+
     public function grilleTarifaire()
     {
         return $this->belongsTo(GrilleTarifaire::class);

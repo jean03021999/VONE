@@ -56,7 +56,8 @@ class EvaluationController extends Controller
             'type' => 'required|in:devoir,interrogation,composition,examen_blanc,rattrapage,oral,projet,tp',
             'libelle' => 'required|string',
             'date_evaluation' => 'required|date',
-            'bareme' => 'required|numeric',
+            // Les moyennes ramenent chaque note sur 20 (note x 20 / bareme) : jamais de bareme nul.
+            'bareme' => 'required|numeric|min:1|max:100',
         ]);
 
         $enseignant = $this->enseignantConnecte($request);
@@ -87,10 +88,30 @@ class EvaluationController extends Controller
 
     public function saisirNotes(Request $request, $id)
     {
-        $evaluation = Evaluation::findOrFail($id);
+        $evaluation = Evaluation::with('affectation.classe')->findOrFail($id);
+        // Seul l'enseignant de l'affectation saisit ses notes (la direction, sans dossier
+        // enseignant, peut le faire pour son etablissement).
+        $enseignant = $this->enseignantConnecte($request);
+        $autorise = $enseignant
+            ? (int) $evaluation->affectation?->enseignant_id === (int) $enseignant->id
+            : (int) $evaluation->affectation?->classe?->etablissement_id === (int) $request->user()->etablissement_id;
+        if (!$autorise) {
+            return response()->json(['message' => 'Cette évaluation ne vous appartient pas.'], 403);
+        }
         if ($evaluation->statut !== 'brouillon') {
             return response()->json(['message' => 'Impossible de modifier les notes : evaluation deja soumise.'], 422);
         }
+
+        $bareme = (float) $evaluation->bareme;
+        $request->validate([
+            'notes' => 'array',
+            'notes.*.eleve_id' => 'required|integer',
+            'notes.*.valeur' => "nullable|numeric|min:0|max:{$bareme}",
+            'notes.*.statut_presence' => 'nullable|in:present,absent_justifie,absent_non_justifie',
+        ], [
+            'notes.*.valeur.max' => "Une note ne peut pas dépasser le barème ({$evaluation->bareme}).",
+            'notes.*.valeur.min' => 'Une note ne peut pas être négative.',
+        ]);
 
         foreach ($request->input('notes', []) as $n) {
             Note::where('evaluation_id', $id)->where('eleve_id', $n['eleve_id'])

@@ -43,7 +43,44 @@ class ArreteCaisseController extends Controller
         return response()->json($situation + [
             'coupures' => self::COUPURES,
             'arrete' => $arrete ? $this->formater($arrete) : null,
+            // Seul ce jour-la peut etre rouvert ; aucune operation ne peut etre datee de ce jour ou d'avant.
+            'dernier_arrete' => ArreteCaisse::dernierJourArrete($etablissementId),
         ]);
+    }
+
+    /**
+     * Rouvre le DERNIER arrete (motif obligatoire, trace dans le journal du serveur) pour pouvoir
+     * corriger une operation de cette journee : voir ArreteCaisse::exigerJourOuvert. Un arrete plus
+     * ancien ne se rouvre pas directement, les suivants en dependent (especes de la veille).
+     */
+    public function rouvrir(Request $request)
+    {
+        $request->validate([
+            'date' => 'required|date',
+            'motif' => 'required|string|min:3|max:255',
+        ], ['motif.required' => 'Indiquez pourquoi la caisse est rouverte.', 'motif.min' => 'Indiquez pourquoi la caisse est rouverte.']);
+
+        $etablissementId = $request->user()->etablissement_id;
+        $date = substr($request->date, 0, 10);
+        $arrete = ArreteCaisse::where('etablissement_id', $etablissementId)->whereDate('date_arrete', $date)->first();
+        if (!$arrete) {
+            return response()->json(['message' => "Aucun arrêté de caisse le {$date}."], 404);
+        }
+        if (ArreteCaisse::dernierJourArrete($etablissementId) !== $date) {
+            return response()->json(['message' => "Seul le dernier arrêté peut être rouvert : rouvrez d'abord les journées suivantes."], 422);
+        }
+
+        \Illuminate\Support\Facades\Log::warning('Arrêté de caisse rouvert', [
+            'etablissement_id' => $etablissementId,
+            'date' => $date,
+            'par' => $request->user()->id . ' ' . $request->user()->name,
+            'motif' => trim($request->motif),
+            'especes_theoriques' => $arrete->especes_theoriques,
+            'especes_comptees' => $arrete->especes_comptees,
+        ]);
+        $arrete->delete();
+
+        return response()->json(['message' => 'Caisse du ' . \Carbon\Carbon::parse($date)->format('d/m/Y') . ' rouverte : faites la correction, puis arrêtez-la à nouveau.']);
     }
 
     /** Enregistre (ou refait) l'arrete d'une journee a partir du billetage. */

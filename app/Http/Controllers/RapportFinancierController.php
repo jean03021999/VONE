@@ -34,6 +34,8 @@ class RapportFinancierController extends Controller
             ->whereNull('p.annule_le')
             ->where(fn ($q) => $q->where('fe.session_scolaire_id', $session->id)->orWhereNull('fe.id'))
             ->selectRaw("to_char(p.date_paiement, 'YYYY-MM') AS periode, tf.nom AS type, SUM(p.montant) AS total")
+            // Reprises de l'existant (import Excel) : comptees dans l'annee, mais hors caisse.
+            ->selectRaw("SUM(CASE WHEN p.moyen_paiement = 'reprise' THEN p.montant ELSE 0 END) AS reprises")
             ->groupBy('periode', 'type')
             ->get();
 
@@ -79,6 +81,7 @@ class RapportFinancierController extends Controller
                 $parType[str_starts_with($nom, 'scolarit') ? 'scolarite' : (str_contains($nom, 'inscription') ? 'inscription' : 'autres')] += (float) $p->total;
             }
             $entrees = array_sum($parType);
+            $reprises = (float) $entreesMois->sum('reprises');
             $sal = (float) ($salaires[$cle]->total ?? 0);
             $dep = (float) collect($depenses[$cle] ?? [])->sum('total');
             $cumul += $entrees - $sal - $dep;
@@ -90,6 +93,7 @@ class RapportFinancierController extends Controller
                 'recouvre' => (float) ($attendu[$cle]->recouvre ?? 0),
                 'entrees' => $entrees,
                 'entrees_par_type' => $parType,
+                'dont_reprises' => $reprises,
                 'salaires' => $sal,
                 'nombre_salaires' => (int) ($salaires[$cle]->nombre ?? 0),
                 'depenses' => $dep,
@@ -114,6 +118,8 @@ class RapportFinancierController extends Controller
                 'attendu_echu' => (float) $echu->sum('attendu_echu'),
                 'recouvre_echu' => (float) $echu->sum('recouvre_echu'),
                 'entrees' => collect($mois)->sum('entrees'),
+                // Part des entrees payee avant LAKOLI : entrees - reprises = encaissements de la caisse.
+                'dont_reprises' => collect($mois)->sum('dont_reprises'),
                 'salaires' => collect($mois)->sum('salaires'),
                 'depenses' => collect($mois)->sum('depenses'),
                 'solde' => $cumul,

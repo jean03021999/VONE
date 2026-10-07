@@ -349,6 +349,10 @@ class FraisController extends Controller
         if ($paiements->whereNotNull('annule_le')->isNotEmpty()) {
             return response()->json(['message' => 'Ce versement est déjà annulé.'], 422);
         }
+        // Versement passe par la caisse d'un jour deja arrete : refuse (les reprises n'y sont pas).
+        foreach ($paiements->where('moyen_paiement', '!=', Paiement::MOYEN_REPRISE)->pluck('date_paiement')->unique() as $jour) {
+            \App\Models\ArreteCaisse::exigerJourOuvert($etablissementId, $jour);
+        }
 
         DB::transaction(function () use ($paiements, $request) {
             Paiement::whereIn('id', $paiements->pluck('id'))->update([
@@ -402,6 +406,10 @@ class FraisController extends Controller
         $motif = trim($request->motif);
         $montantAnnule = DB::transaction(function () use ($frais, $request, $motif, $libelle) {
             $paiements = Paiement::valides()->whereIn('echeance_eleve_id', $frais->echeances->pluck('id'))->lockForUpdate()->get();
+            // Paiement passe par la caisse d'un jour deja arrete : refuse (les reprises n'y sont pas).
+            foreach ($paiements->where('moyen_paiement', '!=', Paiement::MOYEN_REPRISE)->pluck('date_paiement')->unique() as $jour) {
+                \App\Models\ArreteCaisse::exigerJourOuvert($request->user()->etablissement_id, $jour);
+            }
             if ($paiements->isNotEmpty()) {
                 Paiement::whereIn('id', $paiements->pluck('id'))->update([
                     'annule_le' => now(),
@@ -504,6 +512,8 @@ class FraisController extends Controller
             ], 422);
         }
 
+        \App\Models\ArreteCaisse::exigerJourOuvert($etablissementId, today());
+
         $resultat = (new FraisService())->encaisserFraisInscription(
             $inscription,
             $typeFrais,
@@ -543,24 +553,39 @@ class FraisController extends Controller
     {
         $eleve = \App\Models\Eleve::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($eleveId);
 
-        $fraisEleves = FraisEleve::where('eleve_id', $eleve->id)
-            ->with(['typeFrais', 'echeances' => fn ($q) => $q->withSum('paiements', 'montant')])->get()
-            ->map(fn($fe) => [
-                'id' => $fe->id,
-                'type_frais' => $fe->typeFrais->nom,
-                'montant_total' => $fe->montant_total,
-                'echeances' => $fe->echeances->map(fn($ech) => [
-                    'id' => $ech->id,
-                    'libelle' => $ech->libelle,
-                    'montant' => $ech->montant,
-                    'date_limite' => $ech->date_limite,
-                    'montant_paye' => $ech->montant_paye,
-                    'solde' => $ech->solde,
-                    'statut' => $ech->statut,
-                ]),
-            ]);
+        // Annee en cours : celle de l'inscription active, sinon l'annee active de l'ecole. Les frais
+        // des autres annees restant dus sont des arrieres, rendus a part (toujours payables).
+        $sessionEnCours = $eleve->inscriptionActive()->value('session_scolaire_id')
+            ?? \App\Models\SessionScolaire::where('etablissement_id', $eleve->etablissement_id)->where('est_active', true)->value('id');
 
-        return response()->json(['eleve' => ['id' => $eleve->id, 'nom' => $eleve->nom, 'prenom' => $eleve->prenom], 'frais' => $fraisEleves]);
+        $formater = fn ($fe) => [
+            'id' => $fe->id,
+            'type_frais' => $fe->typeFrais->nom,
+            'montant_total' => $fe->montant_total,
+            'session' => $fe->sessionScolaire?->libelle,
+            'echeances' => $fe->echeances->map(fn ($ech) => [
+                'id' => $ech->id,
+                'libelle' => $ech->libelle,
+                'montant' => $ech->montant,
+                'date_limite' => $ech->date_limite,
+                'montant_paye' => $ech->montant_paye,
+                'solde' => $ech->solde,
+                'statut' => $ech->statut,
+            ]),
+        ];
+        [$fraisAnnee, $autresAnnees] = FraisEleve::where('eleve_id', $eleve->id)
+            ->with(['typeFrais', 'sessionScolaire', 'echeances' => fn ($q) => $q->withSum('paiements', 'montant')])->get()
+            ->partition(fn ($fe) => (int) $fe->session_scolaire_id === (int) $sessionEnCours);
+        $debutEnCours = \App\Models\SessionScolaire::whereKey($sessionEnCours)->value('date_debut');
+        $arrieres = $autresAnnees->filter(fn ($fe) => (!$debutEnCours || $fe->sessionScolaire?->date_debut < $debutEnCours)
+            && $fe->echeances->sum(fn ($e) => max(0, (float) $e->solde)) > 0);
+
+        return response()->json([
+            'eleve' => ['id' => $eleve->id, 'nom' => $eleve->nom, 'prenom' => $eleve->prenom],
+            'frais' => $fraisAnnee->map($formater)->values(),
+            'arrieres' => $arrieres->map($formater)->values(),
+            'montant_arrieres' => (float) $arrieres->sum(fn ($fe) => $fe->echeances->sum(fn ($e) => max(0, (float) $e->solde))),
+        ]);
     }
 
     public function paiements(Request $request)
@@ -726,7 +751,10 @@ class FraisController extends Controller
         // Statistiques de SCOLARITE uniquement : les frais d'inscription / reinscription sont payes
         // une fois et ne comptent ni dans les montants ni dans les statuts (meme filtre que
         // Eleve::getStatutPaiementAttribute ; "scolarit%" couvre "Scolarite" et "Scolarité").
+        // Classes de l'annee active : celles des annees passees n'ont plus d'eleves inscrits.
+        $sessionActive = \App\Models\SessionScolaire::where('etablissement_id', $etablissementId)->where('est_active', true)->value('id');
         $classes = Classe::where('etablissement_id', $etablissementId)
+            ->where('session_scolaire_id', $sessionActive)
             ->with('eleves')
             ->ordonneesPedagogiquement()
             ->get();
@@ -789,6 +817,7 @@ class FraisController extends Controller
         ], ['date_paiement.before_or_equal' => 'La date du paiement ne peut pas être dans le futur.']);
 
         $etablissementId = $request->user()->etablissement_id;
+        \App\Models\ArreteCaisse::exigerJourOuvert($etablissementId, $request->date_paiement);
 
         $echeance = \App\Models\EcheanceEleve::whereHas(
             'fraisEleve.eleve',

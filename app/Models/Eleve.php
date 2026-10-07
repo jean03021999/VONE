@@ -67,7 +67,14 @@ class Eleve extends Model
     public function fraisScolarite()
     {
         return $this->hasMany(FraisEleve::class)
-            ->whereHas('typeFrais', fn ($q) => $q->where('nom', 'ILIKE', 'scolarit%'));
+            ->whereHas('typeFrais', fn ($q) => $q->where('nom', 'ILIKE', 'scolarit%'))
+            // Annee de l'inscription active seulement (meme regle que echeancesScolariteDe).
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('inscriptions')
+                ->join('sessions_scolaires', 'sessions_scolaires.id', '=', 'inscriptions.session_scolaire_id')
+                ->whereColumn('inscriptions.eleve_id', 'frais_eleves.eleve_id')
+                ->whereColumn('inscriptions.session_scolaire_id', 'frais_eleves.session_scolaire_id')
+                ->where('inscriptions.statut', 'active')
+                ->where('sessions_scolaires.est_active', true));
     }
 
     /**
@@ -114,6 +121,12 @@ class Eleve extends Model
         $lignes = \Illuminate\Support\Facades\DB::table('echeances_eleves as ee')
             ->join('frais_eleves as fe', 'fe.id', '=', 'ee.frais_eleve_id')
             ->join('types_frais as tf', 'tf.id', '=', 'fe.type_frais_id')
+            // Annee de l'inscription active seulement : la dette d'une annee passee est un arriere
+            // (arrieresDe), elle ne compte ni dans le statut ni dans les totaux de l'annee.
+            ->join('inscriptions as i', fn ($j) => $j->on('i.eleve_id', '=', 'fe.eleve_id')
+                ->on('i.session_scolaire_id', '=', 'fe.session_scolaire_id')
+                ->where('i.statut', '=', 'active'))
+            ->join('sessions_scolaires as sa', fn ($j) => $j->on('sa.id', '=', 'i.session_scolaire_id')->where('sa.est_active', '=', true))
             ->leftJoinSub($payes, 'p', 'p.echeance_eleve_id', '=', 'ee.id')
             ->whereIn('fe.eleve_id', $ids)
             ->where('tf.nom', 'ILIKE', 'scolarit%')
@@ -136,6 +149,47 @@ class Eleve extends Model
         }
 
         return array_map(fn ($d) => ['echeances' => collect($d['echeances']), 'session_id' => $d['session_id']], $parEleve);
+    }
+
+    /**
+     * Arrieres de plusieurs eleves en une requete : reste a payer (tous frais) des annees ou
+     * l'eleve n'a plus d'inscription active, c'est-a-dire des annees passees.
+     * [eleve_id => ['montant' => float, 'sessions' => [['libelle', 'date_fin', 'montant']]]].
+     */
+    public static function arrieresDe($eleveIds): array
+    {
+        $ids = collect($eleveIds)->all();
+        $payes = \Illuminate\Support\Facades\DB::table('paiements')
+            ->whereIn('eleve_id', $ids)
+            ->whereNull('annule_le')
+            ->groupBy('echeance_eleve_id')
+            ->select('echeance_eleve_id')
+            ->selectRaw('SUM(montant) AS total');
+
+        $lignes = \Illuminate\Support\Facades\DB::table('echeances_eleves as ee')
+            ->join('frais_eleves as fe', 'fe.id', '=', 'ee.frais_eleve_id')
+            ->join('sessions_scolaires as s', 's.id', '=', 'fe.session_scolaire_id')
+            ->leftJoinSub($payes, 'p', 'p.echeance_eleve_id', '=', 'ee.id')
+            ->whereIn('fe.eleve_id', $ids)
+            // Annees passees : commencees avant l'annee active de l'ecole (ni l'annee en cours, ni
+            // une annee a venir deja preparee).
+            ->where('s.est_active', false)
+            ->whereRaw('s.date_debut < (SELECT sa.date_debut FROM sessions_scolaires sa WHERE sa.etablissement_id = s.etablissement_id AND sa.est_active ORDER BY sa.date_debut DESC LIMIT 1)')
+            ->groupBy('fe.eleve_id', 's.id', 's.libelle', 's.date_fin')
+            ->select('fe.eleve_id', 's.libelle', 's.date_fin')
+            ->selectRaw('SUM(GREATEST(ee.montant - COALESCE(p.total, 0), 0)) AS reste')
+            ->havingRaw('SUM(GREATEST(ee.montant - COALESCE(p.total, 0), 0)) > 0')
+            ->orderBy('s.date_fin')
+            ->get();
+
+        $parEleve = [];
+        foreach ($lignes as $l) {
+            $parEleve[$l->eleve_id] ??= ['montant' => 0.0, 'sessions' => []];
+            $parEleve[$l->eleve_id]['montant'] += (float) $l->reste;
+            $parEleve[$l->eleve_id]['sessions'][] = ['libelle' => $l->libelle, 'date_fin' => substr((string) $l->date_fin, 0, 10), 'montant' => (float) $l->reste];
+        }
+
+        return $parEleve;
     }
 
     /** Statut de paiement a partir de echeancesScolariteDe(). */

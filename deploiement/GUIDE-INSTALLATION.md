@@ -7,12 +7,24 @@ peuvent pas l'ouvrir (voir section 6).
 
 Durée : environ 1 heure. Internet n'est nécessaire que pour télécharger les logiciels de l'étape 1.
 
+> **Avant de taper une commande PowerShell**
+> - **Ne copiez jamais une commande depuis un téléphone** (WhatsApp, SMS, e-mail lu sur téléphone) :
+>   les guillemets y sont transformés et la commande échoue (invite `>>` qui attend la suite, ou
+>   « … n'est pas reconnu »). Ouvrez ce guide **sur le PC lui-même** et copiez depuis lui.
+> - Copiez **la ligne entière**, du premier au dernier caractère, puis collez par **clic droit** dans
+>   PowerShell et validez par **Entrée**. Si l'invite `>>` apparaît, appuyez sur **Ctrl+C** et recommencez.
+> - **Ne fermez pas la fenêtre PowerShell** entre deux commandes d'une même étape.
+> - Préférez les scripts fournis dans le paquet (`installer.ps1`, `desinstaller-lakoli.ps1`,
+>   `reinitialiser-mot-de-passe-postgres.ps1`) : ils font tout, sans rien taper d'autre.
+
 ---
 
 ## 0. Avant de partir
 
-- **Le paquet** `lakoli-ecole-AAAAMMJJ-HHMM.zip` (préparé avec `deploiement\preparer-paquet.ps1`),
-  sur une clé USB.
+- **Le paquet** LAKOLI sur une clé USB : un fichier dont le nom commence par `lakoli-ecole-` et se
+  termine par `.zip`, préparé avec `deploiement\preparer-paquet.ps1`. Son nom contient la date et
+  l'heure de préparation (par exemple `lakoli-ecole-20261008-1232.zip` = 8 octobre 2026, 12 h 32) :
+  **prenez toujours le plus récent**.
 - Les installateurs de l'étape 1, déjà téléchargés, sur la même clé.
 - **Une deuxième clé USB** (ou un disque externe), qui restera à l'école pour les sauvegardes.
 
@@ -40,15 +52,20 @@ pendant un enregistrement peut abîmer les données.
 
 1. Copiez le paquet `.zip` sur le PC, par exemple sur le Bureau, puis : clic droit > **Extraire tout**.
 2. Ouvrez le menu Démarrer, tapez `PowerShell`, puis clic droit > **Exécuter en tant qu'administrateur**.
-3. Tapez (en adaptant le chemin du dossier extrait) :
+3. Placez PowerShell dans le dossier extrait, **sans taper son nom** : tapez `cd` suivi d'**un espace**,
+   puis faites glisser le dossier extrait (depuis l'Explorateur) dans la fenêtre PowerShell. Son
+   chemin complet s'écrit tout seul. Appuyez sur **Entrée**.
+4. Lancez l'installation :
 
    ```
-   cd "$env:USERPROFILE\Desktop\lakoli-ecole-AAAAMMJJ-HHMM"
    powershell -ExecutionPolicy Bypass -File installer.ps1
    ```
 
-4. Répondez aux questions :
-   - le mot de passe du compte `postgres` (étape 1) ;
+   « … installer.ps1 n'existe pas » : PowerShell n'est pas dans le bon dossier, reprenez le point 3.
+
+5. Répondez aux questions :
+   - le mot de passe du compte `postgres` (étape 1). Oublié ? Voir section 9, « Mot de passe
+     PostgreSQL oublié » ;
    - le nom de l'établissement, la ville et le téléphone ;
    - le nom, l'e-mail et le mot de passe **du fondateur**. C'est le premier compte : il crée ensuite
      les autres ;
@@ -208,7 +225,27 @@ L'école voit le changement en rechargeant la page (F5).
 | Les autres ordinateurs n'ouvrent pas LAKOLI | Normal avec cette installation : voir section 6. |
 | Un code de vérification est demandé | L'adresse ou l'accès n'est plus local : voir section 6 et le journal. |
 | Mot de passe oublié (un utilisateur) | Le fondateur ou le directeur le réinitialise dans Paramètres > Utilisateurs & rôles. |
+| Mot de passe PostgreSQL (`postgres`) oublié | Script `reinitialiser-mot-de-passe-postgres.ps1` : voir ci-dessous. |
 | Détail technique d'une erreur | Journal : `C:\laragon\www\lakoli\storage\logs\` (fichier du jour). |
+
+### Mot de passe PostgreSQL oublié
+
+Le mot de passe du compte `postgres` (choisi à l'installation de PostgreSQL) est demandé par
+l'installation de LAKOLI, la restauration et la désinstallation. S'il est oublié, **les données ne
+sont pas perdues** : le script du paquet en définit un nouveau.
+
+1. PowerShell **en administrateur**, placé dans le dossier extrait du paquet (section 2, point 3).
+2. Lancez :
+   ```
+   powershell -ExecutionPolicy Bypass -File reinitialiser-mot-de-passe-postgres.ps1
+   ```
+3. Tapez deux fois le nouveau mot de passe (rien ne s'affiche pendant la saisie) : 8 caractères au
+   moins, lettres sans accent, chiffres et symboles du clavier.
+
+Le script ouvre un court instant l'accès sans mot de passe **depuis ce PC seulement**, enregistre le
+nouveau mot de passe, puis remet **toujours** la protection, même en cas d'erreur. Il termine par
+« Mot de passe du compte « postgres » changé, PostgreSQL protégé. » ; sinon, il affiche en rouge ce
+qui reste à faire. **Notez le nouveau mot de passe en lieu sûr.**
 
 ---
 
@@ -223,6 +260,22 @@ une installation existante.
 
 **Laragon, PostgreSQL et PHP restent installés** : la nouvelle installation les réutilise. Le dossier
 des sauvegardes `C:\LAKOLI-Sauvegardes` est conservé lui aussi : supprimez-le à la main si besoin.
+
+### Méthode conseillée : le script
+
+1. PowerShell **en administrateur**, placé dans le dossier extrait du paquet (section 2, point 3).
+2. Lancez :
+   ```
+   powershell -ExecutionPolicy Bypass -File desinstaller-lakoli.ps1
+   ```
+3. Répondez **O** pour faire d'abord une sauvegarde (conseillé), puis tapez **SUPPRIMER** en majuscules
+   pour confirmer. Le mot de passe du compte `postgres` est demandé.
+
+Le script arrête Laragon, supprime la base, l'application, le site Apache, la sauvegarde automatique
+de 18 h et les raccourcis, puis affiche un **bilan** : chaque ligne doit être verte. Une ligne rouge
+indique ce qui reste ; corrigez-la et relancez le script, qui ne refait que ce qui manque.
+
+### Méthode manuelle (si le script n'est pas disponible)
 
 Chaque étape peut se faire **à la souris (méthode A)** ou **par commande (méthode B)**. Les deux
 donnent le même résultat : choisissez la plus confortable.

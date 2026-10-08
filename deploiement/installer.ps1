@@ -19,7 +19,7 @@
 # Utilisation :  powershell -ExecutionPolicy Bypass -File installer.ps1 [-MiseAJour]
 #
 # Essai sur un poste de développement (sans toucher à l'installation existante) : -Laragon et -App
-# vers un dossier d'essai, -Base / -UtilisateurBase / -Port dédiés, -AdminBase (rôle PostgreSQL
+# vers un dossier d'essai, -Base / -UtilisateurBase / -Port / -PortBase dédiés, -AdminBase (rôle PostgreSQL
 # autorisé à créer bases et rôles), -DossierSauvegardes, -SansTachePlanifiee. Le mot de passe
 # d'administration PostgreSQL peut être fourni par la variable LAKOLI_PG_ADMIN_MDP.
 # -DossiersRaccourcis : dossiers où créer le raccourci LAKOLI (par défaut : Bureau commun et menu
@@ -33,6 +33,8 @@ param(
     [string]$UtilisateurBase = "lakoli_user",
     [string]$App = "",
     [string]$AdminBase = "postgres",
+    # Port de PostgreSQL (5432 par défaut) : une autre instance pour les essais.
+    [int]$PortBase = 5432,
     [string]$DossierSauvegardes = "C:\LAKOLI-Sauvegardes",
     [switch]$SansTachePlanifiee,
     [string[]]$DossiersRaccourcis = @(),
@@ -160,19 +162,19 @@ if (-not $MiseAJour) {
     $alphabet = [char[]]"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     $mdpBase = -join (1..32 | ForEach-Object { $alphabet | Get-Random })
 
-    $roleExiste = & $psql -h 127.0.0.1 -U $AdminBase -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$UtilisateurBase'"
+    $roleExiste = & $psql -h 127.0.0.1 -p $PortBase -U $AdminBase -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$UtilisateurBase'"
     if ($LASTEXITCODE -ne 0) { Echec "connexion à PostgreSQL impossible : mot de passe « $AdminBase » incorrect ?" }
     $ordre = if ($roleExiste -eq "1") { "ALTER" } else { "CREATE" }
-    & $psql -h 127.0.0.1 -U $AdminBase -d postgres -qc "$ordre ROLE $UtilisateurBase LOGIN PASSWORD '$mdpBase'" | Out-Null
-    $baseExiste = & $psql -h 127.0.0.1 -U $AdminBase -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$Base'"
+    & $psql -h 127.0.0.1 -p $PortBase -U $AdminBase -d postgres -qc "$ordre ROLE $UtilisateurBase LOGIN PASSWORD '$mdpBase'" | Out-Null
+    $baseExiste = & $psql -h 127.0.0.1 -p $PortBase -U $AdminBase -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$Base'"
     if ($baseExiste -eq "1") { Echec "la base $Base existe déjà. Supprimez-la ou choisissez un autre nom (-Base)." }
-    & $psql -h 127.0.0.1 -U $AdminBase -d postgres -qc "CREATE DATABASE $Base OWNER $UtilisateurBase ENCODING 'UTF8' TEMPLATE template0" | Out-Null
+    & $psql -h 127.0.0.1 -p $PortBase -U $AdminBase -d postgres -qc "CREATE DATABASE $Base OWNER $UtilisateurBase ENCODING 'UTF8' TEMPLATE template0" | Out-Null
     if ($LASTEXITCODE -ne 0) { Echec "création de la base impossible." }
     Remove-Item Env:\PGPASSWORD
 
     Etape "Configuration (.env, accès local uniquement)"
     $contenuEnv = [IO.File]::ReadAllText((Join-Path $app "deploiement\.env.ecole"))
-    $contenuEnv = $contenuEnv.Replace("__PORT__", "$Port").Replace("__BASE__", $Base).Replace("__UTILISATEUR__", $UtilisateurBase).Replace("__MOT_DE_PASSE__", $mdpBase)
+    $contenuEnv = $contenuEnv.Replace("__PORT__", "$Port").Replace("__BASE__", $Base).Replace("__UTILISATEUR__", $UtilisateurBase).Replace("__MOT_DE_PASSE__", $mdpBase).Replace("DB_PORT=5432", "DB_PORT=$PortBase")
     [IO.File]::WriteAllText((Join-Path $app ".env"), $contenuEnv, (New-Object Text.UTF8Encoding $false))
     Artisan key:generate --force
 }

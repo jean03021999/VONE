@@ -4,7 +4,8 @@
 #   lakoli\                 backend Laravel (dernier commit, dépendances de production)
 #                           + application web compilée dans lakoli\public (API sur la même adresse : /api)
 #   php-8.5.8-nts-x64\      PHP utilisé par Apache (Laragon ne fournit que PHP 8.3, insuffisant)
-#   installer.ps1, sauvegarde.ps1, restaurer.ps1, GUIDE-INSTALLATION.md
+#   installer.ps1, sauvegarde.ps1, restaurer.ps1, desinstaller-lakoli.ps1,
+#   reinitialiser-mot-de-passe-postgres.ps1, GUIDE-INSTALLATION.md
 #
 # Seuls les fichiers COMMITÉS du backend sont pris (git archive) : jamais le .env ni les données locales.
 #
@@ -55,7 +56,7 @@ Etape "PHP 8.5 pour Apache"
 Copy-Item -Path $Php -Destination (Join-Path $sortie (Split-Path $Php -Leaf)) -Recurse
 
 Etape "Scripts et guide"
-foreach ($f in "installer.ps1", "sauvegarde.ps1", "restaurer.ps1", "GUIDE-INSTALLATION.md") {
+foreach ($f in "installer.ps1", "sauvegarde.ps1", "restaurer.ps1", "desinstaller-lakoli.ps1", "reinitialiser-mot-de-passe-postgres.ps1", "GUIDE-INSTALLATION.md") {
     Copy-Item (Join-Path $PSScriptRoot $f) $sortie
 }
 

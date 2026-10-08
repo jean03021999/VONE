@@ -176,6 +176,25 @@ Cette opération remplace toutes les données actuelles. L'état actuel est sauv
    configuration sont conservés.
 3. Dans Laragon : **Arrêter**, puis **Tout démarrer**.
 
+### Période d'essai (réservé à l'éditeur de LAKOLI)
+
+Une nouvelle installation offre **un mois d'essai gratuit** (30 jours, `installer.ps1 -Essai 30` par
+défaut ; `-Essai 0` = abonnement actif d'emblée). Pendant les **7 derniers jours**, un bandeau orange
+prévient l'école sur toutes les pages. Une fois l'essai terminé, LAKOLI passe en **lecture seule** :
+consultation et impression possibles, plus aucun enregistrement (paiement, élève, note…).
+
+Dans PowerShell, dans `C:\laragon\www\lakoli` :
+
+| Commande | Effet |
+|---|---|
+| `php artisan lakoli:essai` | Affiche l'état (jours restants) |
+| `php artisan lakoli:essai 30` | Essai de 30 jours à partir d'aujourd'hui (sert aussi à prolonger) |
+| `php artisan lakoli:essai --jusqu-au=2026-12-31` | Essai jusqu'à cette date incluse |
+| `php artisan lakoli:essai --activer` | Abonnement payé : plus aucune limite |
+| `php artisan lakoli:essai --suspendre` | Lecture seule immédiate |
+
+L'école voit le changement en rechargeant la page (F5).
+
 ---
 
 ## 9. En cas de problème

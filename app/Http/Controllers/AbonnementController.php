@@ -17,8 +17,6 @@ class AbonnementController extends Controller
         return response()->json([
             'nom' => $etablissement->nom,
             'code' => $etablissement->code,
-            'statut' => $etablissement->statut,
-            'date_fin_essai' => $etablissement->date_fin_essai,
-        ]);
+        ] + $etablissement->etatAbonnement());
     }
 }

@@ -35,7 +35,10 @@ param(
     [string]$AdminBase = "postgres",
     [string]$DossierSauvegardes = "C:\LAKOLI-Sauvegardes",
     [switch]$SansTachePlanifiee,
-    [string[]]$DossiersRaccourcis = @()
+    [string[]]$DossiersRaccourcis = @(),
+    # Jours d'essai gratuit de la nouvelle école (0 = abonnement actif d'emblée). Ensuite :
+    # php artisan lakoli:essai pour prolonger, activer ou suspendre.
+    [int]$Essai = 30
 )
 
 $ErrorActionPreference = "Stop"
@@ -180,7 +183,7 @@ Artisan migrate --force
 
 if (-not $MiseAJour) {
     Etape "Établissement et compte du fondateur"
-    & $php (Join-Path $app "artisan") lakoli:installer
+    & $php (Join-Path $app "artisan") lakoli:installer "--essai=$Essai"
     if ($LASTEXITCODE -ne 0) { Echec "création de l'établissement interrompue. Relancez : php artisan lakoli:installer (dans $app)." }
 } else {
     # Installations faites avant que l'installateur ne crée les classes : année scolaire et classes

@@ -46,6 +46,8 @@ Route::get('/user', function (Request $request) {
             'agrement', 'slogan', 'capacite_accueil', 'logo_url',
         ]) : null,
         'session' => $session?->libelle,
+        // Essai : jours restants, rappel (7 derniers jours), lecture seule une fois termine.
+        'abonnement' => $user->etablissement?->etatAbonnement(),
     ]);
 })->middleware('auth:sanctum');
 

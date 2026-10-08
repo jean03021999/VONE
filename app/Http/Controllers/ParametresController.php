@@ -359,7 +359,7 @@ class ParametresController extends Controller
             'slogan' => $e->slogan,
             'devise' => $e->devise,
             'statut' => $e->statut,
-            'date_fin_essai' => $e->date_fin_essai,
+            'date_fin_essai' => $e->date_fin_essai?->toDateString(),
             'logo_url' => $e->logo_url,
         ];
     }

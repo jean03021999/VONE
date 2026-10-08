@@ -33,7 +33,8 @@ class InstallerEtablissement extends Command
         {--telephone-fondateur= : Telephone du fondateur (facultatif, sert aussi d\'identifiant)}
         {--cycles= : Cycles de l\'ecole, separes par des virgules (maternelle,primaire,college,lycee)}
         {--annee= : Annee de debut de l\'annee scolaire en cours (ex. 2026 pour 2026-2027)}
-        {--sans-classes : Ne pas creer les classes courantes}';
+        {--sans-classes : Ne pas creer les classes courantes}
+        {--essai=30 : Jours d\'essai gratuit (0 = abonnement actif d\'emblee)}';
 
     protected $description = "Cree l'etablissement, ses roles, le compte du fondateur, l'annee scolaire et les classes sur une base neuve.";
 
@@ -115,7 +116,9 @@ class InstallerEtablissement extends Command
             return self::FAILURE;
         }
 
-        $etablissement = DB::transaction(function () use ($nom, $ville, $telephone, $fondateur, $email, $telFondateur, $motDePasse, $modeles, $cycles, $annee, $creerClasses) {
+        $joursEssai = max(0, (int) $this->option('essai'));
+
+        $etablissement = DB::transaction(function () use ($nom, $ville, $telephone, $fondateur, $email, $telFondateur, $motDePasse, $modeles, $cycles, $annee, $creerClasses, $joursEssai) {
             $etablissement = Etablissement::create([
                 'nom' => trim($nom),
                 'code' => $this->codeUnique($nom),
@@ -125,7 +128,9 @@ class InstallerEtablissement extends Command
                 'ville' => $ville ?: null,
                 'telephone' => $telephone ?: null,
                 'cycles' => $cycles,
-                'statut' => 'actif',
+                // Un mois d'essai gratuit par defaut, puis lecture seule (php artisan lakoli:essai).
+                'statut' => $joursEssai > 0 ? 'essai' : 'actif',
+                'date_fin_essai' => $joursEssai > 0 ? today()->addDays($joursEssai - 1)->toDateString() : null,
             ]);
 
             // Annee scolaire en cours, active d'emblee (aucune autre session sur une base neuve) :
@@ -183,6 +188,9 @@ class InstallerEtablissement extends Command
         $this->line("Compte fondateur : {$email} — connexion avec le profil « Fondateur ».");
         $nbClasses = Classe::where('etablissement_id', $etablissement->id)->count();
         $this->line("Année scolaire {$annee}-" . ($annee + 1) . " active ; {$nbClasses} classe(s) créée(s).");
+        $this->line($joursEssai > 0
+            ? "Essai gratuit de {$joursEssai} jours, jusqu'au " . $etablissement->date_fin_essai->format('d/m/Y') . " inclus (prolonger ou activer : php artisan lakoli:essai)."
+            : "Abonnement actif, sans période d'essai.");
         $this->line('Ensuite : Paramètres > Utilisateurs & rôles pour créer les comptes (directeur ou proviseur, comptable...).');
 
         return self::SUCCESS;

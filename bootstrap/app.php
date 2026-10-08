@@ -16,6 +16,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'permission' => \App\Http\Middleware\VerifierPermission::class,
         ]);
+        // Essai termine ou compte suspendu : aucune ecriture par l'API (lecture seule).
+        $middleware->appendToGroup('api', \App\Http\Middleware\LectureSeuleAbonnement::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

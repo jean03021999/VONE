@@ -838,12 +838,12 @@ class EleveImportController extends Controller
         $onglet->setCellValue("A{$ligne}", 'Écritures abrégées aussi acceptées, par exemple :');
         $onglet->getStyle("A{$ligne}")->getFont()->setBold(true);
         $onglet->fromArray([
-            ['7e, 7eme, 7ÈME ANNÉE  →  7ème Année'],
+            ['7e, 7eme, 7ÈME ANNÉE, 7eA  →  7ème Année'],
             ['1ère, CP1 … CM2  →  1ère Année … 6ème Année'],
-            ['PS, MS, GS  →  Petite, Moyenne, Grande Section'],
-            ['11e S, 11 L, 12e Scientifique  →  11ème / 12ème Année, série correspondante'],
+            ['CRECHE  →  Crèche ; PS, MS, GS, P Section, M Section, G Section  →  Petite, Moyenne, Grande Section'],
+            ['11eSM, 11 SE, 12e SS, 12e Sociales  →  11ème / 12ème Année, série correspondante'],
             ['Tle SM, TSE, Term Sociales  →  Terminale de la série correspondante'],
-            ['6e A, 6ème B  →  la classe de ce groupe (si l\'école a plusieurs groupes)'],
+            ['6e A, 6ème B, 7eA  →  la classe de ce groupe (si l\'école a plusieurs groupes)'],
             ['Une écriture qui correspond à plusieurs classes (« 12e », « Tle S ») est refusée : précisez la série ou le groupe.'],
         ], null, 'A' . ($ligne + 1));
 

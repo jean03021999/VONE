@@ -127,6 +127,21 @@ class RapportFinancierController extends Controller
                 'entrees' => collect($mois)->sum('entrees'),
                 // Part des entrees payee avant LAKOLI : entrees - reprises = encaissements de la caisse.
                 'dont_reprises' => collect($mois)->sum('dont_reprises'),
+                // Remises accordees aux eleves sur l'annee (deja deduites de l'attendu).
+                'remises' => (float) DB::table('frais_eleves as fe')
+                    ->join('eleves as e', 'e.id', '=', 'fe.eleve_id')
+                    ->where('e.etablissement_id', $etablissementId)
+                    ->whereNull('e.deleted_at')
+                    ->where('fe.session_scolaire_id', $session->id)
+                    ->whereNotNull('fe.remise_type')
+                    ->sum(DB::raw('fe.montant_original - fe.montant_total')),
+                'nombre_remises' => DB::table('frais_eleves as fe')
+                    ->join('eleves as e', 'e.id', '=', 'fe.eleve_id')
+                    ->where('e.etablissement_id', $etablissementId)
+                    ->whereNull('e.deleted_at')
+                    ->where('fe.session_scolaire_id', $session->id)
+                    ->whereNotNull('fe.remise_type')
+                    ->count(),
                 'salaires' => collect($mois)->sum('salaires'),
                 'depenses' => collect($mois)->sum('depenses'),
                 'solde' => $cumul,

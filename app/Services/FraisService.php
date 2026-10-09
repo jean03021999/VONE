@@ -315,4 +315,91 @@ class FraisService
 
         return array_sum($parts);
     }
+
+    /**
+     * Remise accordee a un eleve sur un de ses frais, avec un motif (obligatoire : il protege aussi
+     * le frais du report d'un changement de grille). $type 'pourcentage' (50 = demi-tarif, chaque
+     * echeance reduite d'autant) ou 'montant' (retire des dernieres echeances d'abord). Le calcul
+     * repart toujours des montants d'avant remise (montant_initial) : une nouvelle remise remplace
+     * la precedente. $type null : annule la remise. Leve une RuntimeException si une echeance
+     * passerait sous ce qui a deja ete paye dessus. Retourne la remise en GNF.
+     */
+    public function appliquerRemise(FraisEleve $frais, ?string $type, ?float $valeur, ?string $motif): float
+    {
+        return DB::transaction(function () use ($frais, $type, $valeur, $motif) {
+            $echeances = $frais->echeances()->withSum('paiements', 'montant')
+                ->orderBy('date_limite')->orderBy('id')->lockForUpdate()->get()->values();
+            $initiaux = $echeances->map(fn ($e) => (float) ($e->montant_initial ?? $e->montant))->all();
+            $totalInitial = array_sum($initiaux);
+
+            $nouveaux = $initiaux;
+            if ($type === 'pourcentage') {
+                $nouveaux = array_map(fn ($m) => round($m * (100 - $valeur) / 100), $initiaux);
+            } elseif ($type === 'montant') {
+                if ($valeur > $totalInitial) {
+                    throw new \RuntimeException('Remise (' . (int) $valeur . ' GNF) supérieure au montant des frais (' . (int) $totalInitial . ' GNF).');
+                }
+                $reste = $valeur;
+                for ($i = count($nouveaux) - 1; $i >= 0 && $reste > 0; $i--) {
+                    $retrait = min($reste, $nouveaux[$i]);
+                    $nouveaux[$i] -= $retrait;
+                    $reste -= $retrait;
+                }
+            }
+
+            foreach ($echeances as $i => $echeance) {
+                $paye = (float) $echeance->paiements_sum_montant;
+                if ($nouveaux[$i] + 0.5 < $paye) {
+                    throw new \RuntimeException("{$echeance->libelle} a déjà reçu " . (int) $paye . ' GNF : la remise la ramènerait à '
+                        . (int) $nouveaux[$i] . ' GNF. Annulez d\'abord ce paiement ou choisissez une remise plus petite.');
+                }
+            }
+            foreach ($echeances as $i => $echeance) {
+                $echeance->update(['montant' => $nouveaux[$i], 'montant_initial' => $initiaux[$i]]);
+            }
+
+            $frais->update([
+                'montant_total' => array_sum($nouveaux),
+                'montant_original' => $frais->montant_original ?? $totalInitial,
+                'remise_type' => $type,
+                'remise_valeur' => $type ? $valeur : null,
+                'motif_personnalisation' => $type ? $motif : null,
+            ]);
+
+            return $totalInitial - array_sum($nouveaux);
+        });
+    }
+
+    /**
+     * Dispense des frais d'inscription / reinscription (ex. enfant du personnel) : le frais est cree
+     * a 0 GNF avec le motif (remise de 100 %), et compte comme inscription reglee.
+     */
+    public function dispenserFraisInscription(Inscription $inscription, TypeFrais $typeFrais, GrilleTarifaire $grille, string $motif): FraisEleve
+    {
+        return DB::transaction(function () use ($inscription, $typeFrais, $grille, $motif) {
+            $frais = FraisEleve::firstOrCreate(
+                [
+                    'eleve_id' => $inscription->eleve_id,
+                    'type_frais_id' => $typeFrais->id,
+                    'session_scolaire_id' => $inscription->session_scolaire_id,
+                ],
+                [
+                    'montant_total' => $grille->montant,
+                    'montant_original' => $grille->montant,
+                    'inscription_id' => $inscription->id,
+                    'grille_tarifaire_id' => $grille->id,
+                ]
+            );
+            if ($frais->wasRecentlyCreated) {
+                $frais->echeances()->create([
+                    'libelle' => $typeFrais->nom,
+                    'montant' => $grille->montant,
+                    'date_limite' => today()->toDateString(),
+                ]);
+            }
+            $this->appliquerRemise($frais, 'pourcentage', 100, $motif);
+
+            return $frais->fresh();
+        });
+    }
 }

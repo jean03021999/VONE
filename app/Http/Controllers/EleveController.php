@@ -41,7 +41,8 @@ class EleveController extends Controller
                 ->where('est_active', true)
                 ->pluck('id'))
             ->whereHas('typeFrais', fn ($q) => $q->where('nom', 'ILIKE', 'inscription')->orWhere('nom', 'ILIKE', 'r_inscription'))
-            ->whereHas('echeances.paiements')
+            // Paye, ou dispense (frais ramenes a 0 par une remise de 100 %).
+            ->where(fn ($q) => $q->whereHas('echeances.paiements')->orWhere('montant_total', 0))
             ->with('typeFrais:id,nom')
             ->get()
             ->mapWithKeys(fn ($f) => [

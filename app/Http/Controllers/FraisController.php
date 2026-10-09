@@ -549,6 +549,74 @@ class FraisController extends Controller
         ], 201);
     }
 
+    /**
+     * Remise sur un frais d'un eleve : pourcentage (50 = demi-tarif) ou montant (retire des dernieres
+     * echeances), avec motif ; sans « type » : annule la remise. Voir FraisService::appliquerRemise.
+     */
+    public function remise(Request $request, $fraisId)
+    {
+        $request->validate([
+            'type' => 'nullable|in:pourcentage,montant',
+            'valeur' => 'required_with:type|nullable|numeric|min:0.01',
+            'motif' => 'required_with:type|nullable|string|min:3|max:255',
+        ], [
+            'motif.required_with' => 'Indiquez le motif de la remise (ex. enfant du personnel, fratrie).',
+            'motif.min' => 'Indiquez le motif de la remise (ex. enfant du personnel, fratrie).',
+            'valeur.required_with' => 'Indiquez le montant ou le pourcentage de la remise.',
+        ]);
+        if ($request->type === 'pourcentage' && (float) $request->valeur > 100) {
+            return response()->json(['message' => 'Une remise ne peut pas dépasser 100 %.'], 422);
+        }
+
+        $frais = FraisEleve::whereHas('eleve', fn ($q) => $q->where('etablissement_id', $request->user()->etablissement_id))
+            ->with(['eleve:id,nom,prenom', 'typeFrais:id,nom'])
+            ->findOrFail($fraisId);
+
+        try {
+            $remise = (new FraisService())->appliquerRemise($frais, $request->type, $request->type ? (float) $request->valeur : null, $request->type ? trim($request->motif) : null);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $eleve = "{$frais->eleve->prenom} {$frais->eleve->nom}";
+        return response()->json([
+            'message' => $request->type
+                ? "Remise de " . number_format($remise, 0, ',', ' ') . " GNF appliquée sur {$frais->typeFrais->nom} de {$eleve}."
+                : "Remise annulée : {$frais->typeFrais->nom} de {$eleve} revient au tarif de la grille.",
+        ]);
+    }
+
+    /** Dispense des frais d'inscription / reinscription de l'eleve (remise de 100 %, motif obligatoire). */
+    public function dispenserInscription(Request $request)
+    {
+        $request->validate([
+            'eleve_id' => 'required|integer',
+            'type' => 'required|in:inscription,reinscription',
+            'motif' => 'required|string|min:3|max:255',
+        ], ['motif.required' => 'Indiquez le motif de la dispense.', 'motif.min' => 'Indiquez le motif de la dispense.']);
+
+        $etablissementId = $request->user()->etablissement_id;
+        $eleve = \App\Models\Eleve::where('etablissement_id', $etablissementId)->with('inscriptionActive.classe')->findOrFail($request->eleve_id);
+        $inscription = $eleve->inscriptionActive;
+        if (! $inscription) {
+            return response()->json(['message' => "Cet élève n'a pas d'inscription active sur l'année en cours."], 422);
+        }
+        $service = new FraisService();
+        $typeFrais = $service->typeFraisInscription($etablissementId, $request->type);
+        $grille = $typeFrais ? $service->grilleInscription($inscription, $typeFrais) : null;
+        if (! $grille) {
+            return response()->json(['message' => 'Aucune grille « ' . ($request->type === 'reinscription' ? 'Réinscription' : 'Inscription') . " » pour la classe {$inscription->classe?->nom}."], 422);
+        }
+        $existant = FraisEleve::where('eleve_id', $eleve->id)->where('type_frais_id', $typeFrais->id)->where('session_scolaire_id', $inscription->session_scolaire_id)->first();
+        if ($existant && Paiement::valides()->whereIn('echeance_eleve_id', $existant->echeances()->pluck('id'))->exists()) {
+            return response()->json(['message' => 'Ces frais ont déjà reçu un paiement : annulez-le d\'abord dans le Journal de caisse.'], 422);
+        }
+
+        $service->dispenserFraisInscription($inscription, $typeFrais, $grille, trim($request->motif));
+
+        return response()->json(['message' => "{$eleve->prenom} {$eleve->nom} est dispensé(e) des frais de {$typeFrais->nom}."]);
+    }
+
     public function suiviEleve(Request $request, $eleveId)
     {
         $eleve = \App\Models\Eleve::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($eleveId);
@@ -563,6 +631,11 @@ class FraisController extends Controller
             'type_frais' => $fe->typeFrais->nom,
             'montant_total' => $fe->montant_total,
             'session' => $fe->sessionScolaire?->libelle,
+            // Remise eventuelle : montant d'avant remise, type, valeur et motif.
+            'montant_original' => $fe->montant_original,
+            'remise_type' => $fe->remise_type,
+            'remise_valeur' => $fe->remise_valeur !== null ? (float) $fe->remise_valeur : null,
+            'motif_remise' => $fe->remise_type ? $fe->motif_personnalisation : null,
             'echeances' => $fe->echeances->map(fn ($ech) => [
                 'id' => $ech->id,
                 'libelle' => $ech->libelle,

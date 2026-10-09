@@ -8,7 +8,7 @@ use Illuminate\Support\Collection;
  * Reconnait une classe ecrite librement (fichier Excel d'import) parmi les classes de l'annee :
  * « 7e », « 7ème », « 7EME ANNEE », « 6eme A », « Tle SS », « TSM », « 11e S », « PS »...
  *
- * Chaque nom est ramene a trois elements : niveau (CR = Creche, PS, MS, GS, 1 a 13, T), serie (SCI, LIT, SM,
+ * Chaque nom est ramene a trois elements : niveau (PS, MS, GS, 1 a 13, T), serie (SCI, LIT, SM,
  * SE, SS) et groupe (A, B, 1, 2...). Une ecriture est rattachee a une classe quand un seul
  * candidat reste possible ; sinon elle est refusee avec la liste des classes envisageables.
  */
@@ -109,8 +109,6 @@ class CorrespondanceClasses
         $texte = preg_replace('/[^a-z0-9]+/', ' ', self::ascii($nom));
         // « 7eme », « 11e », « 1ere » -> « 7 », « 11 », « 1 » ; « tsm » -> « t sm ».
         $texte = preg_replace('/\b(\d{1,2})\s*(?:eme|em|e|ere|er|re|ieme)\b/', '$1', $texte);
-        // Formes collees : « 7ea » -> « 7 a », « 11esm » -> « 11 sm », « 10a » -> « 10 a ».
-        $texte = preg_replace('/\b(\d{1,2})(?:eme|e)?([a-z]{1,3})\b/', '$1 $2', $texte);
         $texte = preg_replace('/\bt(sm|se|ss)\b/', 't $1', $texte);
         $mots = array_values(array_filter(explode(' ', trim($texte)), 'strlen'));
 
@@ -118,13 +116,6 @@ class CorrespondanceClasses
         $reste = [];
         foreach ($mots as $i => $mot) {
             if ($niveau === null) {
-                if (in_array($mot, ['creche', 'creches', 'garderie', 'pouponniere'], true)) { $niveau = 'CR'; continue; }
-                // « P Section », « M Section », « G Section ».
-                $suivant = $mots[$i + 1] ?? '';
-                if (in_array($mot, ['p', 'm', 'g'], true) && str_starts_with($suivant, 'sect')) {
-                    $niveau = ['p' => 'PS', 'm' => 'MS', 'g' => 'GS'][$mot];
-                    continue;
-                }
                 if (in_array($mot, ['ps', 'petite'], true)) { $niveau = 'PS'; continue; }
                 if (in_array($mot, ['ms', 'moyenne'], true)) { $niveau = 'MS'; continue; }
                 if (in_array($mot, ['gs', 'grande'], true)) { $niveau = 'GS'; continue; }

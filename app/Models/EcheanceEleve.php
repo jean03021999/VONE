@@ -8,15 +8,7 @@ class EcheanceEleve extends Model
 {
     protected $table = 'echeances_eleves';
 
-    protected $fillable = ['frais_eleve_id', 'libelle', 'montant', 'montant_initial', 'date_limite'];
-
-    // Montant d'avant remise (FraisService::appliquerRemise), fixe a la creation de l'echeance.
-    protected static function booted(): void
-    {
-        static::creating(function (EcheanceEleve $echeance) {
-            $echeance->montant_initial ??= $echeance->montant;
-        });
-    }
+    protected $fillable = ['frais_eleve_id', 'libelle', 'montant', 'date_limite'];
 
     public function fraisEleve()
     {

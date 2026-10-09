@@ -76,17 +76,13 @@ class Classe extends Model
      */
     public function scopeOrdonneesPedagogiquement($query)
     {
-        // Meme ordre que src/constants/niveaux.js ; les anciennes series Scientifique / Litteraire
-        // restent classees a leur place pour les classes creees avant SM, SE, SS.
         $ordre = [
-            'Crèche', 'Petite Section', 'Moyenne Section', 'Grande Section',
+            'Petite Section', 'Moyenne Section', 'Grande Section',
             '1ère Année', '2ème Année', '3ème Année', '4ème Année', '5ème Année', '6ème Année',
             '7ème Année', '8ème Année', '9ème Année', '10ème Année',
-            '11ème Année - Sciences Mathématiques', '11ème Année - Sciences Expérimentales', '11ème Année - Sciences Sociales',
             '11ème Année - Série Scientifique', '11ème Année - Série Littéraire',
-            '12ème Année - Sciences Mathématiques', '12ème Année - Sciences Expérimentales', '12ème Année - Sciences Sociales',
             '12ème Année - Série Scientifique', '12ème Année - Série Littéraire',
-            'Terminale - Sciences Mathématiques', 'Terminale - Sciences Expérimentales', 'Terminale - Sciences Sociales',
+            'Terminale - Sciences Mathématiques', 'Terminale - Sciences Sociales', 'Terminale - Sciences Expérimentales',
         ];
 
         $whens = [];

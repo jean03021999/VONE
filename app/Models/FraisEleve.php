@@ -8,7 +8,7 @@ class FraisEleve extends Model
 {
     protected $fillable = [
         'eleve_id', 'type_frais_id', 'session_scolaire_id',
-        'montant_total', 'montant_original', 'motif_personnalisation', 'remise_type', 'remise_valeur',
+        'montant_total', 'montant_original', 'motif_personnalisation',
         'inscription_id', 'grille_tarifaire_id',
     ];
 

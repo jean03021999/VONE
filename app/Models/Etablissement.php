@@ -14,12 +14,11 @@ class Etablissement extends Model
         'telephone', 'email', 'logo_path', 'langue_principale',
         'devise', 'statut', 'date_fin_essai',
         'quartier', 'region', 'prefecture', 'coordonnees_gps', 'telephone_secondaire', 'whatsapp_relance',
-        'cycles', 'capacite_accueil', 'agrement', 'slogan', 'decoupage_frais',
+        'cycles', 'capacite_accueil', 'agrement', 'slogan',
     ];
 
     protected $casts = [
         'cycles' => 'array',
-        'decoupage_frais' => 'array',
         'date_fin_essai' => 'date:Y-m-d',
     ];
 

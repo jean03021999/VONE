@@ -40,15 +40,8 @@ class RapportFinancierController extends Controller
             ->get();
 
         // Le rapport commence au premier mois de la session, ou plus tot si des inscriptions ont ete
-        // encaissees avant la rentree, ou si des echeances tombent avant (mensualites de Mai et Juin
-        // payees avant la rentree d'octobre).
-        $premiereEcheance = DB::table('echeances_eleves as ee')
-            ->join('frais_eleves as fe', 'fe.id', '=', 'ee.frais_eleve_id')
-            ->join('eleves as e', 'e.id', '=', 'fe.eleve_id')
-            ->where('e.etablissement_id', $etablissementId)
-            ->where('fe.session_scolaire_id', $session->id)
-            ->min('ee.date_limite');
-        $premierMois = collect([$paiements->min('periode'), $premiereEcheance ? substr($premiereEcheance, 0, 7) : null])->filter()->min();
+        // encaissees avant la rentree.
+        $premierMois = $paiements->min('periode');
         $debut = $premierMois && $premierMois < $debutSession->format('Y-m') ? Carbon::parse("{$premierMois}-01") : $debutSession->copy();
 
         $salaires = DB::table('salaires')->where('etablissement_id', $etablissementId)->where('statut', 'paye')
@@ -127,21 +120,6 @@ class RapportFinancierController extends Controller
                 'entrees' => collect($mois)->sum('entrees'),
                 // Part des entrees payee avant LAKOLI : entrees - reprises = encaissements de la caisse.
                 'dont_reprises' => collect($mois)->sum('dont_reprises'),
-                // Remises accordees aux eleves sur l'annee (deja deduites de l'attendu).
-                'remises' => (float) DB::table('frais_eleves as fe')
-                    ->join('eleves as e', 'e.id', '=', 'fe.eleve_id')
-                    ->where('e.etablissement_id', $etablissementId)
-                    ->whereNull('e.deleted_at')
-                    ->where('fe.session_scolaire_id', $session->id)
-                    ->whereNotNull('fe.remise_type')
-                    ->sum(DB::raw('fe.montant_original - fe.montant_total')),
-                'nombre_remises' => DB::table('frais_eleves as fe')
-                    ->join('eleves as e', 'e.id', '=', 'fe.eleve_id')
-                    ->where('e.etablissement_id', $etablissementId)
-                    ->whereNull('e.deleted_at')
-                    ->where('fe.session_scolaire_id', $session->id)
-                    ->whereNotNull('fe.remise_type')
-                    ->count(),
                 'salaires' => collect($mois)->sum('salaires'),
                 'depenses' => collect($mois)->sum('depenses'),
                 'solde' => $cumul,

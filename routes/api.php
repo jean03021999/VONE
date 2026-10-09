@@ -43,7 +43,7 @@ Route::get('/user', function (Request $request) {
         // agrement, slogan) et alerte de capacite d'accueil.
         'etablissement' => $user->etablissement ? $user->etablissement->only([
             'id', 'nom', 'ville', 'quartier', 'adresse', 'telephone', 'telephone_secondaire', 'whatsapp_relance', 'email',
-            'agrement', 'slogan', 'capacite_accueil', 'logo_url', 'decoupage_frais',
+            'agrement', 'slogan', 'capacite_accueil', 'logo_url',
         ]) : null,
         'session' => $session?->libelle,
         // Essai : jours restants, rappel (7 derniers jours), lecture seule une fois termine.
@@ -114,8 +114,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/frais/types/{id}', [FraisController::class, 'destroyTypeFrais'])->middleware('permission:frais.creer');
     Route::post('/frais/paiements/annuler', [FraisController::class, 'annulerPaiements'])->middleware('permission:frais.paiement.enregistrer');
     Route::post('/frais/appliquer-inscription', [FraisController::class, 'appliquerInscription'])->middleware('permission:frais.creer');
-    Route::post('/frais/dispenser-inscription', [FraisController::class, 'dispenserInscription'])->middleware('permission:frais.creer');
-    Route::post('/frais/eleves-frais/{id}/remise', [FraisController::class, 'remise'])->middleware('permission:frais.creer');
     Route::post('/frais/annuler-inscription', [FraisController::class, 'annulerInscription'])->middleware('permission:frais.paiement.enregistrer');
     Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve'])->middleware('permission:frais.voir');
     Route::post('/frais/paiements', [FraisController::class, 'enregistrerPaiement'])->middleware('permission:frais.paiement.enregistrer');

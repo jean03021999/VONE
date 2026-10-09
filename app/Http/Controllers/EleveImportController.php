@@ -504,6 +504,21 @@ class EleveImportController extends Controller
             ->get(['id', 'matricule']);
     }
 
+    /** Parmi $eleves, ceux qui ont une inscription active dans la classe $classeId. */
+    private function inscritsDansLaClasse($eleves, int $classeId)
+    {
+        if ($eleves->isEmpty()) {
+            return $eleves;
+        }
+        $inscrits = Inscription::whereIn('eleve_id', $eleves->pluck('id'))
+            ->where('classe_id', $classeId)
+            ->where('statut', 'active')
+            ->pluck('eleve_id')
+            ->flip();
+
+        return $eleves->filter(fn ($e) => isset($inscrits[$e->id]))->values();
+    }
+
     private function estInscritSurSession(int $eleveId, int $sessionId): bool
     {
         return Inscription::where('eleve_id', $eleveId)
@@ -637,7 +652,18 @@ class EleveImportController extends Controller
         $message = '';
         if ($donnee['date_naissance'] === null && empty($donnee['matricule'])) {
             $homonymes = $this->homonymes($donnee, $etablissementId);
-            if ($homonymes->isNotEmpty()) {
+            // Meme nom et prenom deja inscrit dans CETTE classe cette annee (saisi a la main) : c'est
+            // lui. La ligne n'est pas recreee et ses paiements ne sont pas repris (deja saisis ?).
+            $dansLaClasse = $this->inscritsDansLaClasse($homonymes, $classe->id);
+            if ($dansLaClasse->count() === 1) {
+                $donnee['statut'] = 'doublon';
+                $donnee['message'] = 'Déjà enregistré dans LAKOLI (même nom et prénom, même classe : ' . $dansLaClasse->first()->matricule
+                    . ') : ligne ignorée, ses paiements ne sont pas repris. Vérifiez son solde dans sa fiche.';
+                return $donnee;
+            }
+            if ($dansLaClasse->count() > 1) {
+                $avertissements[] = 'Plusieurs élèves de ce nom sont déjà dans cette classe (' . $dansLaClasse->pluck('matricule')->implode(', ') . ') : vérifiez.';
+            } elseif ($homonymes->isNotEmpty()) {
                 $avertissements[] = 'Doublon possible : ' . $homonymes->count() . ' élève(s) du même nom et prénom déjà enregistré(s) ('
                     . $homonymes->pluck('matricule')->implode(', ') . '). Vérifiez : importé comme nouvel élève.';
             }
@@ -788,15 +814,19 @@ class EleveImportController extends Controller
 
                 if ($donnee['statut'] === 'ok') {
                     $cle = $this->cleDoublon($donnee);
-                    if (isset($clesVuesDansLeFichier[$cle]) && !empty($donnee['sans_date'])) {
-                        // Meme nom et prenom sans date : peut-etre deux homonymes, a verifier.
+                    $deja = $clesVuesDansLeFichier[$cle] ?? null;
+                    if ($deja && !empty($donnee['sans_date']) && $deja['classe_id'] !== $donnee['classe_id']) {
+                        // Meme nom et prenom sans date, dans une autre classe : peut-etre deux homonymes.
                         $donnee['message'] = trim($donnee['message'] . ' Même nom et prénom qu\'une autre ligne du fichier ('
-                            . $clesVuesDansLeFichier[$cle] . ') : vérifiez qu\'il s\'agit bien de deux élèves.');
-                    } elseif (isset($clesVuesDansLeFichier[$cle])) {
+                            . $deja['libelle'] . ') : vérifiez qu\'il s\'agit bien de deux élèves.');
+                    } elseif ($deja) {
                         $donnee['statut'] = 'doublon';
-                        $donnee['message'] = 'Cet élève apparaît plusieurs fois dans le fichier importé.';
+                        $donnee['message'] = 'Cet élève apparaît plusieurs fois dans le fichier importé' . (!empty($donnee['sans_date']) ? ' (même classe).' : '.');
                     } else {
-                        $clesVuesDansLeFichier[$cle] = trim($donnee['prenom'] . ' ' . $donnee['nom']) . ', feuille ' . $feuille['nom'];
+                        $clesVuesDansLeFichier[$cle] = [
+                            'libelle' => trim($donnee['prenom'] . ' ' . $donnee['nom']) . ', ' . $donnee['classe_nom'],
+                            'classe_id' => $donnee['classe_id'],
+                        ];
                     }
                 }
 
@@ -992,6 +1022,10 @@ class EleveImportController extends Controller
                         if (empty($donnee['date_naissance']) && empty($donnee['matricule'])
                             && $this->homonymes($donnee, $etablissementId)->filter(fn ($h) => Eleve::whereKey($h->id)->whereNull('date_naissance')->where('created_at', '<', $debutImport)->exists())->isNotEmpty()) {
                             throw new \RuntimeException('Fiche sans date déjà enregistrée sous ce nom (import déjà effectué ?) : relancez l\'analyse du fichier.');
+                        }
+                        if (empty($donnee['date_naissance']) && empty($donnee['matricule'])
+                            && $this->inscritsDansLaClasse($this->homonymes($donnee, $etablissementId), $classe->id)->isNotEmpty()) {
+                            throw new \RuntimeException("Déjà inscrit dans {$classe->nom} sous ce nom : ligne ignorée (relancez l'analyse du fichier).");
                         }
 
                         if (!empty($donnee['matricule'])) {

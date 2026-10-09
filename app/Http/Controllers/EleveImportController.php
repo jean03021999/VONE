@@ -436,9 +436,7 @@ class EleveImportController extends Controller
         if ($donnee['prenom'] === '') {
             return 'Prénom manquant.';
         }
-        if ($donnee['date_naissance_brute'] === '') {
-            return 'Date de naissance manquante.';
-        }
+        // Date de naissance facultative : un eleve sans date est une fiche a completer.
         return null;
     }
 
@@ -468,7 +466,7 @@ class EleveImportController extends Controller
     {
         $memeIdentite = fn (Eleve $e) => mb_strtolower($e->nom) === mb_strtolower($donnee['nom'])
             && mb_strtolower($e->prenom) === mb_strtolower($donnee['prenom'])
-            && Carbon::parse($e->date_naissance)->format('Y-m-d') === $donnee['date_naissance'];
+            && ($e->date_naissance ? Carbon::parse($e->date_naissance)->format('Y-m-d') : null) === $donnee['date_naissance'];
 
         if (!empty($donnee['matricule'])) {
             // Le matricule est unique pour toute la base, eleves supprimes compris.
@@ -484,12 +482,26 @@ class EleveImportController extends Controller
             }
         }
 
+        // Sans date de naissance, le nom et le prenom seuls ne suffisent pas a reconnaitre un eleve
+        // (homonymes frequents) : voir homonymes(), qui donne un simple avertissement.
+        if (empty($donnee['date_naissance'])) {
+            return [null, null];
+        }
         $eleve = Eleve::where('etablissement_id', $etablissementId)
             ->whereDate('date_naissance', $donnee['date_naissance'])
             ->whereRaw('LOWER(nom) = ?', [mb_strtolower($donnee['nom'])])
             ->whereRaw('LOWER(prenom) = ?', [mb_strtolower($donnee['prenom'])])
             ->first();
         return [$eleve, null];
+    }
+
+    /** Eleves deja enregistres sous ce nom et ce prenom (sans tenir compte des majuscules). */
+    private function homonymes(array $donnee, int $etablissementId)
+    {
+        return Eleve::where('etablissement_id', $etablissementId)
+            ->whereRaw('LOWER(nom) = ?', [mb_strtolower($donnee['nom'])])
+            ->whereRaw('LOWER(prenom) = ?', [mb_strtolower($donnee['prenom'])])
+            ->get(['id', 'matricule']);
     }
 
     private function estInscritSurSession(int $eleveId, int $sessionId): bool
@@ -578,8 +590,13 @@ class EleveImportController extends Controller
             return $donnee;
         }
 
-        $dateConvertie = $this->normaliserDate($this->extraireBrut($ligneBrute, $mapping, 'date_naissance'));
-        if ($dateConvertie === null) {
+        $avertissements = [];
+        $dateConvertie = $donnee['date_naissance_brute'] === ''
+            ? null
+            : $this->normaliserDate($this->extraireBrut($ligneBrute, $mapping, 'date_naissance'));
+        if ($donnee['date_naissance_brute'] === '') {
+            $avertissements[] = 'Date de naissance absente : fiche à compléter.';
+        } elseif ($dateConvertie === null) {
             $donnee['statut'] = 'erreur';
             $donnee['message'] = 'Date de naissance invalide : ' . $donnee['date_naissance_brute'] . ' (attendu : jour/mois/année, ex. 12/03/2014).';
             $donnee['classe_id'] = null;
@@ -618,6 +635,13 @@ class EleveImportController extends Controller
         }
 
         $message = '';
+        if ($donnee['date_naissance'] === null && empty($donnee['matricule'])) {
+            $homonymes = $this->homonymes($donnee, $etablissementId);
+            if ($homonymes->isNotEmpty()) {
+                $avertissements[] = 'Doublon possible : ' . $homonymes->count() . ' élève(s) du même nom et prénom déjà enregistré(s) ('
+                    . $homonymes->pluck('matricule')->implode(', ') . '). Vérifiez : importé comme nouvel élève.';
+            }
+        }
         [$existant, $erreurMatricule] = $this->trouverEleveExistant($donnee, $etablissementId);
         if ($erreurMatricule !== null) {
             $donnee['statut'] = 'erreur';
@@ -699,7 +723,8 @@ class EleveImportController extends Controller
         }
 
         $donnee['statut'] = 'ok';
-        $donnee['message'] = $message;
+        $donnee['message'] = trim($message . ' ' . implode(' ', $avertissements));
+        $donnee['sans_date'] = $donnee['date_naissance'] === null;
         return $donnee;
     }
 
@@ -763,11 +788,15 @@ class EleveImportController extends Controller
 
                 if ($donnee['statut'] === 'ok') {
                     $cle = $this->cleDoublon($donnee);
-                    if (isset($clesVuesDansLeFichier[$cle])) {
+                    if (isset($clesVuesDansLeFichier[$cle]) && !empty($donnee['sans_date'])) {
+                        // Meme nom et prenom sans date : peut-etre deux homonymes, a verifier.
+                        $donnee['message'] = trim($donnee['message'] . ' Même nom et prénom qu\'une autre ligne du fichier ('
+                            . $clesVuesDansLeFichier[$cle] . ') : vérifiez qu\'il s\'agit bien de deux élèves.');
+                    } elseif (isset($clesVuesDansLeFichier[$cle])) {
                         $donnee['statut'] = 'doublon';
                         $donnee['message'] = 'Cet élève apparaît plusieurs fois dans le fichier importé.';
                     } else {
-                        $clesVuesDansLeFichier[$cle] = true;
+                        $clesVuesDansLeFichier[$cle] = trim($donnee['prenom'] . ' ' . $donnee['nom']) . ', feuille ' . $feuille['nom'];
                     }
                 }
 
@@ -789,6 +818,7 @@ class EleveImportController extends Controller
             'lignes' => $resultats,
             'stats' => [
                 'total' => count($resultats),
+                'sans_date' => $valides->where('sans_date', true)->count(),
                 'valides' => $valides->count(),
                 'doublons' => collect($resultats)->where('statut', 'doublon')->count(),
                 'erreurs' => collect($resultats)->where('statut', 'erreur')->count(),
@@ -869,6 +899,8 @@ class EleveImportController extends Controller
     {
         $etablissementId = $request->user()->etablissement_id;
         $lignes = $request->input('lignes', []);
+        // Eleves crees avant cet import : sert a reconnaitre un import relance pour les fiches sans date.
+        $debutImport = now();
         $importes = 0;
         $reinscrits = 0;
         $fraisEnregistres = 0;
@@ -932,7 +964,7 @@ class EleveImportController extends Controller
             try {
                 $resultat = DB::transaction(function () use (
                     $donnee, $classe, $etablissementId, $type, $montantFrais, $montantScolarite, $parTranche, $inscriptionService, $fraisService,
-                    $request, $prefixeMatricule, &$dernierNumero
+                    $request, $prefixeMatricule, $debutImport, &$dernierNumero
                 ) {
                     if (!empty($donnee['eleve_existant_id'])) {
                         // Ancien eleve deja connu de LAKOLI : reinscription dans la nouvelle classe.
@@ -956,6 +988,10 @@ class EleveImportController extends Controller
                         }
                         if ($deja) {
                             throw new \RuntimeException('Élève déjà enregistré dans LAKOLI (import déjà effectué ?) : relancez l\'analyse du fichier.');
+                        }
+                        if (empty($donnee['date_naissance']) && empty($donnee['matricule'])
+                            && $this->homonymes($donnee, $etablissementId)->filter(fn ($h) => Eleve::whereKey($h->id)->whereNull('date_naissance')->where('created_at', '<', $debutImport)->exists())->isNotEmpty()) {
+                            throw new \RuntimeException('Fiche sans date déjà enregistrée sous ce nom (import déjà effectué ?) : relancez l\'analyse du fichier.');
                         }
 
                         if (!empty($donnee['matricule'])) {

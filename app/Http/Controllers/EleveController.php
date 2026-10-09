@@ -75,6 +75,8 @@ class EleveController extends Controller
                 ] : null,
                 'photo_path' => $eleve->photo_path,
                 'statut_dossier' => $eleve->statut_dossier,
+                // Fiche a completer : date de naissance absente (import d'un registre sans dates).
+                'fiche_incomplete' => $eleve->date_naissance === null,
                 'statut_paiement' => $statutPaiement,
                 // 'inscription' | 'reinscription' | null (frais d'inscription pas encore enregistres)
                 'inscription_reglee' => $inscriptionReglee[$eleve->id] ?? null,

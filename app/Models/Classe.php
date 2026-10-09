@@ -77,7 +77,7 @@ class Classe extends Model
     public function scopeOrdonneesPedagogiquement($query)
     {
         $ordre = [
-            'Petite Section', 'Moyenne Section', 'Grande Section',
+            'Crèche', 'Petite Section', 'Moyenne Section', 'Grande Section',
             '1ère Année', '2ème Année', '3ème Année', '4ème Année', '5ème Année', '6ème Année',
             '7ème Année', '8ème Année', '9ème Année', '10ème Année',
             '11ème Année - Série Scientifique', '11ème Année - Série Littéraire',

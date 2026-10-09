@@ -40,7 +40,7 @@ class InstallerEtablissement extends Command
 
     // Classes courantes par cycle (systeme guineen), dans l'ordre pedagogique.
     public const CLASSES = [
-        'maternelle' => ['Petite Section', 'Moyenne Section', 'Grande Section'],
+        'maternelle' => ['Crèche', 'Petite Section', 'Moyenne Section', 'Grande Section'],
         'primaire' => ['1ère Année', '2ème Année', '3ème Année', '4ème Année', '5ème Année', '6ème Année'],
         'college' => ['7ème Année', '8ème Année', '9ème Année', '10ème Année'],
         'lycee' => [

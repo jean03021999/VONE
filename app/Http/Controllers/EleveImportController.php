@@ -404,6 +404,7 @@ class EleveImportController extends Controller
         }
 
         $sommeMois = null;
+        $parMois = [];
         foreach ($mapping['mois'] ?? [] as $libelle => $index) {
             $montant = $this->lireMontantCellule($ligne, $ligneBrute, $index);
             if ($montant === false) {
@@ -411,6 +412,8 @@ class EleveImportController extends Controller
             }
             if ($montant !== null) {
                 $sommeMois = ($sommeMois ?? 0) + $montant;
+                $numero = self::numeroMois((string) $libelle);
+                $parMois[$numero] = ($parMois[$numero] ?? 0) + $montant;
             }
         }
 
@@ -425,7 +428,27 @@ class EleveImportController extends Controller
             return 'Total payé (' . (int) $total . " GNF) différent de la somme {$source} (" . (int) $detail . ' GNF) : corrigez le fichier.';
         }
 
-        return ['total' => $detail ?? $total, 'par_tranche' => $parTranche !== [] ? $parTranche : null];
+        return [
+            'total' => $detail ?? $total,
+            'par_tranche' => $parTranche !== [] ? $parTranche : null,
+            // Colonnes de mois : [numero du mois => montant], rapprochees des mensualites de la grille.
+            'par_mois' => $parTranche === [] && $parMois !== [] ? $parMois : null,
+        ];
+    }
+
+    /** Numero (1 a 12) du mois d'un en-tete ou d'un libelle d'echeance (« Octobre », « Janv », « Mars 2027 ») ; 0 sinon. */
+    private static function numeroMois(string $libelle): int
+    {
+        $n = preg_replace('/[^a-z]/', '', strtolower((string) @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $libelle)));
+        $prefixes = ['janv' => 1, 'fev' => 2, 'mars' => 3, 'avr' => 4, 'mai' => 5, 'juin' => 6, 'juil' => 7,
+            'aout' => 8, 'sep' => 9, 'oct' => 10, 'nov' => 11, 'dec' => 12];
+        foreach ($prefixes as $prefixe => $numero) {
+            if (str_starts_with($n, $prefixe)) {
+                return $numero;
+            }
+        }
+
+        return 0;
     }
 
     private function verifierChampsObligatoires(array $donnee): ?string
@@ -681,6 +704,25 @@ class EleveImportController extends Controller
                 return $donnee;
             }
             $echeancesGrille = $grille->echeances->sortBy([['date_limite', 'asc'], ['id', 'asc']])->values();
+            // Mensualites : la colonne « Mars » paie l'echeance « Mars » (et non la plus ancienne). Si un
+            // mois paye n'a pas d'echeance du meme nom, le total est reparti de la plus ancienne a la
+            // plus recente, comme avant.
+            if ($scolarite['par_mois']) {
+                $indexParMois = [];
+                foreach ($echeancesGrille as $i => $ech) {
+                    $numero = self::numeroMois((string) $ech->libelle);
+                    if ($numero && !isset($indexParMois[$numero])) {
+                        $indexParMois[$numero] = $i + 1;
+                    }
+                }
+                if (array_diff_key($scolarite['par_mois'], $indexParMois) === []) {
+                    $scolarite['par_tranche'] = [];
+                    foreach ($scolarite['par_mois'] as $numero => $montantMois) {
+                        $scolarite['par_tranche'][$indexParMois[$numero]] = $montantMois;
+                    }
+                    ksort($scolarite['par_tranche']);
+                }
+            }
             foreach ($scolarite['par_tranche'] ?? [] as $numero => $montantTranche) {
                 $echeance = $echeancesGrille->get($numero - 1);
                 if (! $echeance) {
@@ -690,7 +732,7 @@ class EleveImportController extends Controller
                 }
                 if ($montantTranche > (float) $echeance->montant) {
                     $donnee['statut'] = 'erreur';
-                    $donnee['message'] = "Tranche {$numero} : " . (int) $montantTranche . ' GNF payés pour ' . (int) $echeance->montant . " GNF dus ({$echeance->libelle}).";
+                    $donnee['message'] = ($scolarite['par_mois'] ? "{$echeance->libelle} : " : "Tranche {$numero} : ") . (int) $montantTranche . ' GNF payés pour ' . (int) $echeance->montant . " GNF dus ({$echeance->libelle}).";
                     return $donnee;
                 }
             }

@@ -40,8 +40,15 @@ class RapportFinancierController extends Controller
             ->get();
 
         // Le rapport commence au premier mois de la session, ou plus tot si des inscriptions ont ete
-        // encaissees avant la rentree.
-        $premierMois = $paiements->min('periode');
+        // encaissees avant la rentree, ou si des echeances tombent avant (mensualites de Mai et Juin
+        // payees avant la rentree d'octobre).
+        $premiereEcheance = DB::table('echeances_eleves as ee')
+            ->join('frais_eleves as fe', 'fe.id', '=', 'ee.frais_eleve_id')
+            ->join('eleves as e', 'e.id', '=', 'fe.eleve_id')
+            ->where('e.etablissement_id', $etablissementId)
+            ->where('fe.session_scolaire_id', $session->id)
+            ->min('ee.date_limite');
+        $premierMois = collect([$paiements->min('periode'), $premiereEcheance ? substr($premiereEcheance, 0, 7) : null])->filter()->min();
         $debut = $premierMois && $premierMois < $debutSession->format('Y-m') ? Carbon::parse("{$premierMois}-01") : $debutSession->copy();
 
         $salaires = DB::table('salaires')->where('etablissement_id', $etablissementId)->where('statut', 'paye')

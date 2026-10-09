@@ -43,7 +43,7 @@ Route::get('/user', function (Request $request) {
         // agrement, slogan) et alerte de capacite d'accueil.
         'etablissement' => $user->etablissement ? $user->etablissement->only([
             'id', 'nom', 'ville', 'quartier', 'adresse', 'telephone', 'telephone_secondaire', 'whatsapp_relance', 'email',
-            'agrement', 'slogan', 'capacite_accueil', 'logo_url',
+            'agrement', 'slogan', 'capacite_accueil', 'logo_url', 'decoupage_frais',
         ]) : null,
         'session' => $session?->libelle,
         // Essai : jours restants, rappel (7 derniers jours), lecture seule une fois termine.

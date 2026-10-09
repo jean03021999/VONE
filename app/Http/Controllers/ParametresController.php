@@ -81,7 +81,20 @@ class ParametresController extends Controller
             'slogan' => 'nullable|string|max:255',
             // Prefixe des matricules et references (GSSE-2026-001) : 2 a 8 lettres ou chiffres.
             'sigle' => ['nullable', 'string', 'regex:/^[A-Za-z0-9]{2,8}$/'],
-        ], ['sigle.regex' => 'Le sigle doit faire 2 à 8 lettres ou chiffres, sans espace ni accent (ex. GSSE).']);
+            // Decoupage des frais de scolarite (modele des nouvelles grilles) : mois dans l'ordre de paiement.
+            'decoupage_frais' => 'nullable|array',
+            'decoupage_frais.mode' => 'required_with:decoupage_frais|in:trimestriel,mensuel,libre',
+            'decoupage_frais.mois' => 'nullable|array|max:12',
+            'decoupage_frais.mois.*' => 'integer|between:1,12|distinct',
+            'decoupage_frais.jour_limite' => 'nullable|integer|between:1,28',
+        ], [
+            'sigle.regex' => 'Le sigle doit faire 2 à 8 lettres ou chiffres, sans espace ni accent (ex. GSSE).',
+            'decoupage_frais.jour_limite.between' => 'Le jour limite de paiement doit être compris entre 1 et 28.',
+            'decoupage_frais.mois.*.distinct' => 'Chaque mois ne peut être choisi qu\'une fois.',
+        ]);
+        if (($donnees['decoupage_frais']['mode'] ?? null) === 'mensuel' && count($donnees['decoupage_frais']['mois'] ?? []) < 2) {
+            return response()->json(['message' => 'Paiement au mois : cochez au moins deux mois.', 'errors' => ['decoupage_frais.mois' => ['Cochez au moins deux mois.']]], 422);
+        }
 
         $etablissement = $request->user()->etablissement;
         if (array_key_exists('sigle', $donnees)) {
@@ -342,6 +355,7 @@ class ParametresController extends Controller
             'nom' => $e->nom,
             'code' => $e->code,
             'sigle' => $e->sigle ?: Numerotation::initiales($e->nom),
+            'decoupage_frais' => $e->decoupage_frais ?? ['mode' => 'trimestriel', 'mois' => [], 'jour_limite' => 10],
             'type' => $e->type,
             'ville' => $e->ville,
             'quartier' => $e->quartier,

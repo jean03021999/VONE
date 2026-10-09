@@ -47,6 +47,15 @@ class User extends Authenticatable
         return $this->belongsToMany(Role::class, 'user_role');
     }
 
+    /** Le role de l'utilisateur dans son etablissement donne-t-il cette permission ? (comme VerifierPermission) */
+    public function aPermission(string $permission): bool
+    {
+        return $this->etablissement_id !== null && $this->roles()
+            ->where('roles.etablissement_id', $this->etablissement_id)
+            ->whereHas('permissions', fn ($q) => $q->where('nom', $permission))
+            ->exists();
+    }
+
     public function appareilsConfiance()
     {
         return $this->hasMany(AppareilConfiance::class);

@@ -28,6 +28,7 @@ class RolePermissionSeeder extends Seeder
             'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
             'frais.voir', 'frais.creer', 'frais.paiement.enregistrer', 'frais.stats.voir',
             'abonnement.voir', 'abonnement.gerer',
+            'etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer',
         ];
 
         // Source de verite des permissions par role : correspond a l'etat en base (etablissement 2)
@@ -49,6 +50,7 @@ class RolePermissionSeeder extends Seeder
                 'periodes.gerer',
                 'notes.voir', 'notes.valider', 'notes.publier',
                 'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
+                'etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer',
             ],
             // Liste explicite (et non "catalogue sauf...") : une permission ajoutee au catalogue ne doit
             // pas etre accordee automatiquement au Proviseur.
@@ -62,6 +64,7 @@ class RolePermissionSeeder extends Seeder
                 'notes.voir', 'notes.saisir', 'notes.soumettre', 'notes.valider', 'notes.publier',
                 'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
                 'frais.voir', 'frais.creer', 'frais.paiement.enregistrer', 'frais.stats.voir',
+                'etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer',
             ],
             'Censeur' => [
                 'eleves.voir',
@@ -75,6 +78,7 @@ class RolePermissionSeeder extends Seeder
             'Fondateur' => [
                 'eleves.voir', 'enseignants.voir', 'emploi_du_temps.voir', 'bulletins.voir',
                 'frais.stats.voir', 'abonnement.voir', 'abonnement.gerer',
+                'etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer',
             ],
         ];
 

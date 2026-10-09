@@ -131,6 +131,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/utilisateurs/{id}', [UtilisateurController::class, 'update']);
     Route::post('/utilisateurs/{id}/statut', [UtilisateurController::class, 'basculerStatut']);
     Route::post('/utilisateurs/{id}/mot-de-passe', [UtilisateurController::class, 'reinitialiserMotDePasse']);
+    // Roles de l'etablissement et leurs droits (Parametres > Utilisateurs & roles).
+    Route::get('/roles/permissions', [\App\Http\Controllers\RoleController::class, 'permissions'])->middleware('permission:roles.gerer');
+    Route::post('/roles', [\App\Http\Controllers\RoleController::class, 'store'])->middleware('permission:roles.gerer');
+    Route::put('/roles/{id}', [\App\Http\Controllers\RoleController::class, 'update'])->middleware('permission:roles.gerer');
+    Route::delete('/roles/{id}', [\App\Http\Controllers\RoleController::class, 'destroy'])->middleware('permission:roles.gerer');
     Route::get('/abonnement', [AbonnementController::class, 'show'])->middleware('permission:abonnement.voir');
 });
 

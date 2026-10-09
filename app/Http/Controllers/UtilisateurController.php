@@ -35,20 +35,45 @@ class UtilisateurController extends Controller
     }
 
 
-    private const ROLES_ADMINISTRATION = ['FONDATEUR', 'DIRECTEUR', 'PROVISEUR'];
+    /** Droits d'administration : un role qui en contient un est un role « administrateur ». */
+    private const DROITS_ADMINISTRATION = ['etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer'];
 
     private function exigerAdministration(Request $request): void
     {
-        $user = $request->user();
-        $role = $user->roles()->where('roles.etablissement_id', $user->etablissement_id)->first();
-        if (! in_array(strtoupper((string) $role?->nom), self::ROLES_ADMINISTRATION, true)) {
-            abort(403, 'Seule la direction peut gérer les comptes utilisateurs.');
+        if (! $request->user()->aPermission('utilisateurs.gerer')) {
+            abort(403, 'Votre rôle ne permet pas de gérer les comptes utilisateurs.');
         }
     }
 
+    private function estRoleAdministrateur(?\App\Models\Role $role): bool
+    {
+        return $role !== null && $role->permissions()->whereIn('nom', self::DROITS_ADMINISTRATION)->exists();
+    }
+
+    /**
+     * Role de l'etablissement a attribuer. Un role administrateur ne peut etre donne que par un
+     * compte qui gere les roles : sinon, gerer les comptes suffirait a s'accorder plus de droits.
+     */
     private function roleDeLEtablissement(Request $request, $roleId): \App\Models\Role
     {
-        return \App\Models\Role::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($roleId);
+        $role = \App\Models\Role::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($roleId);
+        if ($this->estRoleAdministrateur($role) && ! $request->user()->aPermission('roles.gerer')) {
+            abort(403, "Le rôle « {$role->nom} » donne des droits d'administration : seul un compte autorisé à gérer les rôles peut l'attribuer.");
+        }
+
+        return $role;
+    }
+
+    /**
+     * Modifier, suspendre ou reinitialiser le mot de passe d'un compte administrateur demande aussi
+     * de gerer les roles (sinon : prise de controle du compte du Fondateur par simple reinitialisation).
+     */
+    private function exigerDroitSurCompte(Request $request, User $cible): void
+    {
+        $roleCible = $cible->roles()->where('roles.etablissement_id', $cible->etablissement_id)->first();
+        if ($cible->id !== $request->user()->id && $this->estRoleAdministrateur($roleCible) && ! $request->user()->aPermission('roles.gerer')) {
+            abort(403, "Ce compte a des droits d'administration : seul un compte autorisé à gérer les rôles peut le modifier.");
+        }
     }
 
     /** Mot de passe provisoire lisible (a transmettre a l'utilisateur, qui le changera). */
@@ -104,6 +129,7 @@ class UtilisateurController extends Controller
     {
         $this->exigerAdministration($request);
         $utilisateur = User::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+        $this->exigerDroitSurCompte($request, $utilisateur);
         $request->validate([
             'name' => 'required|string|max:150',
             'email' => ['required', 'email', 'max:150', \Illuminate\Validation\Rule::unique('users', 'email')->ignore($utilisateur->id)],
@@ -136,6 +162,7 @@ class UtilisateurController extends Controller
     {
         $this->exigerAdministration($request);
         $utilisateur = User::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+        $this->exigerDroitSurCompte($request, $utilisateur);
         if ($utilisateur->id === $request->user()->id) {
             return response()->json(['message' => 'Vous ne pouvez pas suspendre votre propre compte.'], 422);
         }
@@ -157,6 +184,7 @@ class UtilisateurController extends Controller
     {
         $this->exigerAdministration($request);
         $utilisateur = User::where('etablissement_id', $request->user()->etablissement_id)->findOrFail($id);
+        $this->exigerDroitSurCompte($request, $utilisateur);
 
         $motDePasse = $this->motDePasseProvisoire();
         $utilisateur->update(['password' => \Illuminate\Support\Facades\Hash::make($motDePasse), 'updated_by' => $request->user()->id]);

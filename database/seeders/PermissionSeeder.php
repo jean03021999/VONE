@@ -49,6 +49,12 @@ class PermissionSeeder extends Seeder
 
             ['nom' => 'abonnement.voir', 'module' => 'abonnement', 'description' => 'Consulter l\'abonnement de l\'etablissement'],
             ['nom' => 'abonnement.gerer', 'module' => 'abonnement', 'description' => 'Gerer l\'abonnement (plan, facturation)'],
+
+            // Administration : attribuables a n'importe quel role (Parametres > Utilisateurs & roles).
+            ['nom' => 'etablissement.gerer', 'module' => 'administration', 'description' => "Modifier la fiche de l'établissement et son logo"],
+            ['nom' => 'sessions.gerer', 'module' => 'administration', 'description' => 'Créer et activer les années scolaires'],
+            ['nom' => 'utilisateurs.gerer', 'module' => 'administration', 'description' => 'Créer, modifier et suspendre les comptes utilisateurs'],
+            ['nom' => 'roles.gerer', 'module' => 'administration', 'description' => 'Créer des rôles et choisir leurs droits'],
         ];
 
         foreach ($permissions as $permission) {

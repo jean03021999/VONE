@@ -17,10 +17,9 @@ use Illuminate\Validation\Rule;
 
 // Module Parametres : fiche de l'etablissement, profil et securite du compte connecte, sessions
 // scolaires, roles et consommation. La fiche etablissement et les sessions ne sont modifiables
-// que par la direction (Fondateur, Directeur, Proviseur).
+// que par les roles qui en ont le droit (etablissement.gerer, sessions.gerer : voir RoleController).
 class ParametresController extends Controller
 {
-    private const ROLES_ADMINISTRATION = ['FONDATEUR', 'DIRECTEUR', 'PROVISEUR'];
     private const TYPES = ['ecole_privee', 'ecole_publique', 'universite', 'centre_formation'];
     private const CYCLES = ['maternelle', 'primaire', 'college', 'lycee'];
 
@@ -30,7 +29,14 @@ class ParametresController extends Controller
         $etablissementId = $user->etablissement_id;
 
         return response()->json([
-            'peut_administrer' => $this->peutAdministrer($user),
+            // Droits d'administration (permissions attribuables a n'importe quel role).
+            'peut_administrer' => $user->aPermission('etablissement.gerer'),
+            'droits' => [
+                'etablissement' => $user->aPermission('etablissement.gerer'),
+                'sessions' => $user->aPermission('sessions.gerer'),
+                'utilisateurs' => $user->aPermission('utilisateurs.gerer'),
+                'roles' => $user->aPermission('roles.gerer'),
+            ],
             'etablissement' => $this->ficheEtablissement($user->etablissement),
             'profil' => [
                 'name' => $user->name,
@@ -59,7 +65,7 @@ class ParametresController extends Controller
 
     public function updateEtablissement(Request $request)
     {
-        $this->exigerAdministration($request->user());
+        $this->exigerDroit($request->user(), 'etablissement.gerer');
 
         $donnees = $request->validate([
             'nom' => 'required|string|max:255',
@@ -95,7 +101,7 @@ class ParametresController extends Controller
 
     public function enregistrerLogo(Request $request)
     {
-        $this->exigerAdministration($request->user());
+        $this->exigerDroit($request->user(), 'etablissement.gerer');
         $request->validate(['logo' => 'required|image|mimes:png,jpg,jpeg,webp|max:2048']);
 
         $etablissement = $request->user()->etablissement;
@@ -116,7 +122,7 @@ class ParametresController extends Controller
 
     public function supprimerLogo(Request $request)
     {
-        $this->exigerAdministration($request->user());
+        $this->exigerDroit($request->user(), 'etablissement.gerer');
 
         $etablissement = $request->user()->etablissement;
         if ($etablissement->logo_path) {
@@ -275,7 +281,7 @@ class ParametresController extends Controller
     public function creerSession(Request $request)
     {
         $user = $request->user();
-        $this->exigerAdministration($user);
+        $this->exigerDroit($user, 'sessions.gerer');
 
         $request->validate([
             'annee_debut' => 'required|integer|between:2000,2100',
@@ -309,7 +315,7 @@ class ParametresController extends Controller
     public function activerSession(Request $request, $id)
     {
         $user = $request->user();
-        $this->exigerAdministration($user);
+        $this->exigerDroit($user, 'sessions.gerer');
 
         $session = SessionScolaire::where('etablissement_id', $user->etablissement_id)->findOrFail($id);
         if ($session->est_active) {
@@ -448,15 +454,13 @@ class ParametresController extends Controller
         return $role?->nom;
     }
 
-    private function peutAdministrer(User $user): bool
+    /** 403 si le role de l'utilisateur n'a pas ce droit (Parametres > Utilisateurs & roles). */
+    private function exigerDroit(User $user, string $permission): void
     {
-        return in_array(strtoupper((string) $this->roleActuel($user)), self::ROLES_ADMINISTRATION, true);
-    }
-
-    private function exigerAdministration(User $user): void
-    {
-        if (!$this->peutAdministrer($user)) {
-            abort(403, 'Seule la direction peut modifier ces paramètres.');
+        if (!$user->aPermission($permission)) {
+            abort(403, $permission === 'sessions.gerer'
+                ? "Votre rôle ne permet pas de gérer les années scolaires."
+                : "Votre rôle ne permet pas de modifier la fiche de l'établissement ni son logo.");
         }
     }
 }

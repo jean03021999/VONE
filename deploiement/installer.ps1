@@ -211,6 +211,10 @@ $reglages = [ordered]@{
     "opcache.max_accelerated_files" = "20000"
     "opcache.validate_timestamps" = "1"
     "opcache.revalidate_freq" = "2"
+    # Mémoire du cache propre à cette installation : sans cela, deux installations du même PHP
+    # sous le même compte (essai et poste de dev, par exemple) partagent la mémoire du cache, et
+    # le PHP démarré en second s'arrête aussitôt (« Opcode handlers are unusable due to ASLR »).
+    "opcache.cache_id" = $Nom
 }
 foreach ($cle in $reglages.Keys) {
     $ligne = "$cle = $($reglages[$cle])"

@@ -9,3 +9,4 @@
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore
+deploiement/poste-developpement.ps1 export-ignore

@@ -10,8 +10,9 @@
 #   2. arrête Laragon et l'empêche de démarrer avec Windows (il reste sur le disque) ;
 #   3. donne au compte « Service local » la lecture du dépôt et l'écriture dans storage et
 #      bootstrap\cache ;
-#   4. crée trois services (serveur web + deux PHP) : http://127.0.0.1:8080, l'adresse de l'API
-#      attendue par lakoli-web (VITE_API_URL).
+#   4. crée trois services (serveur web + deux PHP) : http://127.0.0.1:8080, une seule adresse
+#      comme à l'école, /api servi par Laravel et l'écran par Vite (npm run dev dans lakoli-web,
+#      à lancer à part ; VITE_API_URL=/api comme dans le paquet).
 #
 # Relancer le script refait l'installation (nouvelle version de PHP ou de Caddy, par exemple).
 #
@@ -25,6 +26,8 @@ param(
     [int]$Port = 8080,
     # Deux PHP : $PortPhp et $PortPhp + 1.
     [int]$PortPhp = 9101,
+    # Vite (npm run dev de lakoli-web), fixé dans son vite.config.js.
+    [int]$PortVite = 5173,
     [string]$Laragon = "C:\laragon"
 )
 
@@ -184,20 +187,25 @@ $caddyfile = @"
 	}
 }
 
+# Une seule adresse, comme à l'école : /api vers Laravel, tout le reste (l'écran) vers Vite
+# (npm run dev dans lakoli-web, 127.0.0.1:$PortVite), modifications visibles aussitôt.
 http://:$Port {
 	bind 127.0.0.1
 	root * "$racinePublique"
 	encode gzip
-	php_fastcgi 127.0.0.1:$PortPhp 127.0.0.1:$($PortPhp + 1) {
-		lb_policy least_conn
-		lb_try_duration 15s
-		# Comme à l'école (voir installer.ps1) : pas d'en-têtes d'intermédiaire.
-		header_up -X-Forwarded-For
-		header_up -X-Forwarded-Host
-		header_up -X-Forwarded-Proto
+	@laravel path /api /api/* /sanctum/*
+	handle @laravel {
+		php_fastcgi 127.0.0.1:$PortPhp 127.0.0.1:$($PortPhp + 1) {
+			lb_policy least_conn
+			lb_try_duration 15s
+			# Comme à l'école (voir installer.ps1) : pas d'en-têtes d'intermédiaire.
+			header_up -X-Forwarded-For
+			header_up -X-Forwarded-Host
+			header_up -X-Forwarded-Proto
+		}
 	}
-	file_server {
-		hide .htaccess web.config
+	handle {
+		reverse_proxy 127.0.0.1:$PortVite
 	}
 }
 "@
@@ -257,16 +265,19 @@ $variables
     Start-Service $s.Id
 }
 
-Write-Host "  vérification de http://127.0.0.1:$Port"
+# L'API seule : l'écran dépend de Vite, lancé à part. Sans connexion, /api/user répond 401.
+Write-Host "  vérification de http://127.0.0.1:$Port/api"
 $pret = $false
 for ($i = 0; $i -lt 30 -and -not $pret; $i++) {
     try {
-        $reponse = Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 5
-        $pret = $reponse.StatusCode -eq 200
-    } catch { Start-Sleep -Seconds 1 }
+        Invoke-WebRequest "http://127.0.0.1:$Port/api/user" -Headers @{ Accept = "application/json" } -UseBasicParsing -TimeoutSec 5 | Out-Null
+        $pret = $true
+    } catch {
+        if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 401) { $pret = $true } else { Start-Sleep -Seconds 1 }
+    }
 }
 if (-not $pret) { Echec "rien ne répond sur http://127.0.0.1:$Port. Journaux : $journaux et $Depot\storage\logs." }
 
 Write-Host ""
-Write-Host "Terminé : $Depot est servi sur http://127.0.0.1:$Port, démarré avec Windows." -ForegroundColor Green
+Write-Host "Terminé : LAKOLI sur http://127.0.0.1:$Port, démarré avec Windows (l'écran : npm run dev dans lakoli-web)." -ForegroundColor Green
 Write-Host "Laragon est arrêté et ne démarre plus avec Windows (il reste dans $Laragon)."

@@ -3,13 +3,15 @@
 # ATTENTION : remplace TOUTES les données actuelles par celles de la sauvegarde. Une sauvegarde de
 # l'état actuel est faite juste avant, pour pouvoir revenir en arrière.
 #
-# Utilisation (en administrateur, Laragon arrêté de préférence) :
+# LAKOLI est arrêté pendant la restauration (services Windows), puis redémarré.
+#
+# Utilisation (en administrateur) :
 #   powershell -ExecutionPolicy Bypass -File restaurer.ps1                     (dernière sauvegarde)
 #   powershell -ExecutionPolicy Bypass -File restaurer.ps1 -Fichier E:\LAKOLI-SAUVEGARDES\lakoli-20261005-1800.dump
 
 param(
     [string]$Fichier,
-    [string]$App = "C:\laragon\www\lakoli",
+    [string]$App = "C:\LAKOLI\app",
     [string]$Dossier = "C:\LAKOLI-Sauvegardes",
     # Saute la question « Tapez OUI » (scripts d'essai uniquement).
     [switch]$Confirmer
@@ -17,9 +19,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $admin) { Write-Host "Lancez PowerShell en administrateur (clic droit > Exécuter en tant qu'administrateur)." -ForegroundColor Red; exit 1 }
+
+# Services de LAKOLI créés par installer.ps1 : un fichier .xml chacun dans le dossier services.
+$services = Get-ChildItem (Join-Path (Split-Path $App) "services") -Filter "*.xml" -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.BaseName } | Where-Object { Get-Service $_ -ErrorAction SilentlyContinue }
+function DemarrerServices { foreach ($s in $services) { Start-Service $s -ErrorAction SilentlyContinue } }
+
 if (-not $Fichier) {
     $Fichier = Get-ChildItem $Dossier -File -Filter "lakoli-*.dump" -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending | Select-Object -First 1 | ForEach-Object { $_.FullName }
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1 | ForEach-Object { $_.FullName }
 }
 if (-not $Fichier -or -not (Test-Path $Fichier)) { Write-Host "Aucune sauvegarde trouvée." -ForegroundColor Red; exit 1 }
 
@@ -38,11 +48,18 @@ foreach ($ligne in Get-Content (Join-Path $App ".env")) {
 $pgBin = Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\pg_restore.exe" |
     Sort-Object { [int]$_.Directory.Parent.Name } -Descending | Select-Object -First 1 | ForEach-Object { $_.DirectoryName }
 
+Write-Host "Arrêt de LAKOLI pendant la restauration..."
+foreach ($s in $services) { Stop-Service $s -Force -ErrorAction SilentlyContinue }
+
 $env:PGPASSWORD = $config["DB_PASSWORD"]
 & (Join-Path $pgBin "pg_restore.exe") -h $config["DB_HOST"] -p $config["DB_PORT"] -U $config["DB_USERNAME"] -d $config["DB_DATABASE"] --clean --if-exists --no-owner --single-transaction $Fichier
 $code = $LASTEXITCODE
 Remove-Item Env:\PGPASSWORD
-if ($code -ne 0) { Write-Host "La restauration de la base a échoué (code $code). Les données n'ont pas été modifiées." -ForegroundColor Red; exit 1 }
+if ($code -ne 0) {
+    DemarrerServices
+    Write-Host "La restauration de la base a échoué (code $code). Les données n'ont pas été modifiées." -ForegroundColor Red
+    exit 1
+}
 
 # Fichiers déposés (logos, photos, justificatifs) de la même sauvegarde, s'ils existent.
 $zip = Join-Path (Split-Path $Fichier) ((Split-Path $Fichier -Leaf) -replace '^lakoli-(.*)\.dump$', 'fichiers-$1.zip')
@@ -52,4 +69,5 @@ if (Test-Path $zip) {
     Expand-Archive -Path $zip -DestinationPath $prive -Force
 }
 
-Write-Host "Restauration terminée. Redémarrez Laragon (Tout démarrer)." -ForegroundColor Green
+DemarrerServices
+Write-Host "Restauration terminée : LAKOLI est redémarré." -ForegroundColor Green

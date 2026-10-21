@@ -5,7 +5,9 @@ s'utilise **uniquement sur ce PC** (adresse http://127.0.0.1:8080). Chaque utili
 directeur, comptable…) s'y connecte avec son propre compte. Les autres ordinateurs du réseau ne
 peuvent pas l'ouvrir (voir section 6).
 
-Durée : environ 1 heure. Internet n'est nécessaire que pour télécharger les logiciels de l'étape 1.
+Durée : environ 45 minutes. Internet n'est nécessaire que pour télécharger PostgreSQL (étape 1) :
+tout le reste (PHP, serveur web) est dans le paquet. Aucun logiciel payant n'est utilisé, et aucune
+fenêtre de licence ne s'affiche.
 
 > **Avant de taper une commande PowerShell**
 > - **Ne copiez jamais une commande depuis un téléphone** (WhatsApp, SMS, e-mail lu sur téléphone) :
@@ -25,7 +27,7 @@ Durée : environ 1 heure. Internet n'est nécessaire que pour télécharger les 
   termine par `.zip`, préparé avec `deploiement\preparer-paquet.ps1`. Son nom contient la date et
   l'heure de préparation (par exemple `lakoli-ecole-20261008-1232.zip` = 8 octobre 2026, 12 h 32) :
   **prenez toujours le plus récent**.
-- Les installateurs de l'étape 1, déjà téléchargés, sur la même clé.
+- L'installateur de PostgreSQL (étape 1), déjà téléchargé, sur la même clé.
 - **Une deuxième clé USB** (ou un disque externe), qui restera à l'école pour les sauvegardes.
 
 **Le PC** : Windows 10 ou 11 64 bits, 8 Go de mémoire conseillés. Il doit être allumé
@@ -34,21 +36,23 @@ pendant un enregistrement peut abîmer les données.
 
 ---
 
-## 1. Logiciels à installer (une seule fois)
+## 1. Logiciel à installer (une seule fois)
 
-1. **PostgreSQL 18** (base de données) : <https://www.postgresql.org/download/windows/>, installateur EDB.
-   - Gardez les choix proposés (port 5432).
-   - **Notez le mot de passe du compte `postgres`** : il est demandé à l'étape 2. Gardez-le en lieu sûr.
-   - À la fin, décochez « Stack Builder ».
-2. **Laragon** (serveur web) : <https://laragon.org/download/>, version « Full », installé dans `C:\laragon`.
-3. **Microsoft Visual C++ Redistributable 2015-2022 (x64)** :
-   <https://aka.ms/vs/17/release/vc_redist.x64.exe>. PHP en a besoin.
+**PostgreSQL 18** (base de données) : <https://www.postgresql.org/download/windows/>, installateur EDB.
+- Gardez les choix proposés (port 5432).
+- **Notez le mot de passe du compte `postgres`** : il est demandé à l'étape 2. Gardez-le en lieu sûr.
+- À la fin, décochez « Stack Builder ».
+
+C'est tout : **Laragon n'est plus nécessaire**. Le paquet contient PHP (version officielle,
+windows.php.net), le serveur web Caddy et Microsoft Visual C++, tous gratuits même pour un usage
+commercial. L'installation les met en place toute seule.
 
 ---
 
 ## 2. Installer LAKOLI
 
-> LAKOLI est déjà installé sur ce PC (ancienne version d'essai) ? Désinstallez-le d'abord : section 10.
+> LAKOLI est déjà installé sur ce PC **avec Laragon** ? Ne désinstallez rien : suivez la section 8,
+> « PC installé avec Laragon ». Les données sont conservées.
 
 1. Copiez le paquet `.zip` sur le PC, par exemple sur le Bureau, puis : clic droit > **Extraire tout**.
 2. Ouvrez le menu Démarrer, tapez `PowerShell`, puis clic droit > **Exécuter en tant qu'administrateur**.
@@ -85,13 +89,25 @@ Avec cette installation, la connexion se fait avec **l'e-mail et le mot de passe
 vérification : l'accès est limité à ce PC. Après 5 essais erronés en une minute, la connexion est
 bloquée une minute.
 
-## 3. Démarrer le serveur (Laragon)
+## 3. Démarrage automatique : rien à faire
 
-1. Ouvrez **Laragon**.
-2. Menu (clic droit dans la fenêtre) > **PHP** > **Version** > choisissez **php-8.5.8-nts-x64**.
-3. Cliquez **Arrêter**, puis **Tout démarrer**.
-4. Menu > **Préférences** : cochez **Démarrer Laragon avec Windows** et **Tout démarrer
-   automatiquement**. Ainsi, LAKOLI redémarre tout seul après une coupure.
+LAKOLI fonctionne dès la fin de l'installation et **démarre tout seul avec Windows**, avant même
+l'ouverture de session, sans aucune fenêtre. Il n'y a aucun logiciel à lancer : le comptable
+double-clique seulement sur le raccourci **LAKOLI**. Après une coupure de courant, LAKOLI revient
+au redémarrage du PC.
+
+En coulisses, trois **services Windows** font tourner LAKOLI : **LAKOLI Web** (serveur web) et
+**LAKOLI PHP 1** et **2**. S'ils s'arrêtent, Windows les relance de lui-même en quelques secondes.
+On peut les voir dans l'outil **Services** de Windows (menu Démarrer, tapez `Services`).
+
+Pour vérifier que tout marche (par exemple après un redémarrage), dans PowerShell, sans droits
+d'administrateur :
+
+```
+powershell -ExecutionPolicy Bypass -File C:\LAKOLI\app\deploiement\verifier.ps1
+```
+
+Chaque ligne doit être verte, et la dernière dire « LAKOLI fonctionne. ».
 
 ## 4. Premiers pas : qui fait quoi, dans quel ordre
 
@@ -146,10 +162,11 @@ Cette installation n'accepte que les connexions venues du PC lui-même. Le serve
 vérification et le signale dans son journal.
 
 Pour ouvrir LAKOLI aux autres postes de l'école, il faudra, avec l'équipe LAKOLI :
-1. configurer l'envoi d'e-mails dans `C:\laragon\www\lakoli\.env` (`MAIL_…`), pour que le code de
+1. configurer l'envoi d'e-mails dans `C:\LAKOLI\app\.env` (`MAIL_…`), pour que le code de
    vérification parvienne aux utilisateurs ;
 2. repasser `OTP_ACTIF=true` et mettre l'adresse réseau du PC dans `APP_URL` ;
-3. faire écouter Apache sur le réseau et ouvrir le port 8080 dans le pare-feu.
+3. faire écouter le serveur web sur le réseau (`bind` dans `C:\LAKOLI\caddy\Caddyfile`) et ouvrir le
+   port 8080 dans le pare-feu.
 
 ---
 ## 7. Sauvegardes
@@ -164,21 +181,20 @@ Pour ouvrir LAKOLI aux autres postes de l'école, il faudra, avec l'équipe LAKO
 - **Vérifier** : le fichier `C:\LAKOLI-Sauvegardes\journal.txt` indique « OK » pour chaque sauvegarde.
 - **Sauvegarder à la main** (par exemple avant une opération importante) : dans PowerShell (administrateur),
   ```
-  powershell -ExecutionPolicy Bypass -File C:\laragon\www\lakoli\deploiement\sauvegarde.ps1
+  powershell -ExecutionPolicy Bypass -File C:\LAKOLI\app\deploiement\sauvegarde.ps1
   ```
 
 ### Restaurer une sauvegarde
 
 Cette opération remplace toutes les données actuelles. L'état actuel est sauvegardé juste avant.
 
-1. Dans Laragon, cliquez **Arrêter**.
-2. Dans PowerShell (administrateur) :
+1. Dans PowerShell (administrateur) :
    ```
-   powershell -ExecutionPolicy Bypass -File C:\laragon\www\lakoli\deploiement\restaurer.ps1
+   powershell -ExecutionPolicy Bypass -File C:\LAKOLI\app\deploiement\restaurer.ps1
    ```
    Sans autre précision, c'est la dernière sauvegarde qui est restaurée. Pour une autre sauvegarde,
    ajoutez `-Fichier E:\LAKOLI-SAUVEGARDES\lakoli-20261005-1800.dump`.
-3. Tapez `OUI` pour confirmer, puis **Tout démarrer** dans Laragon.
+2. Tapez `OUI` pour confirmer. LAKOLI est arrêté pendant la restauration, puis redémarré tout seul.
 
 ---
 
@@ -190,8 +206,23 @@ Cette opération remplace toutes les données actuelles. L'état actuel est sauv
    powershell -ExecutionPolicy Bypass -File installer.ps1 -MiseAJour
    ```
    Une sauvegarde est faite avant la mise à jour. Les données, les fichiers déposés et la
-   configuration sont conservés.
-3. Dans Laragon : **Arrêter**, puis **Tout démarrer**.
+   configuration sont conservés. LAKOLI est indisponible une à deux minutes, puis redémarre tout seul.
+
+### PC installé avec Laragon : passage à la nouvelle méthode
+
+Les premières installations utilisaient Laragon, devenu payant (fenêtre de licence au démarrage).
+La même commande `installer.ps1 -MiseAJour` (ci-dessus) fait le passage, **sans perte de données** :
+
+1. une sauvegarde complète est faite d'abord ; si elle échoue, rien n'est modifié ;
+2. Laragon est arrêté et ne démarre plus avec Windows ;
+3. l'application passe de `C:\laragon\www\lakoli` à `C:\LAKOLI\app`, avec **la même base de
+   données, le même `.env`** et tous les fichiers déposés (logos, photos, justificatifs) ;
+4. les services Windows, la sauvegarde de 18 h et le raccourci LAKOLI sont mis en place.
+
+À la fin, ouvrez LAKOLI par le raccourci et vérifiez quelques élèves et paiements. Par précaution,
+Laragon et l'ancienne copie `C:\laragon\www\lakoli` restent sur le disque, inactifs. Quand tout
+fonctionne depuis quelques jours, désinstallez Laragon : Paramètres Windows > Applications >
+**Laragon** > Désinstaller (ou supprimez le dossier `C:\laragon` s'il n'apparaît pas dans la liste).
 
 ### Période d'essai (réservé à l'éditeur de LAKOLI)
 
@@ -200,15 +231,16 @@ défaut ; `-Essai 0` = abonnement actif d'emblée). Pendant les **7 derniers jou
 prévient l'école sur toutes les pages. Une fois l'essai terminé, LAKOLI passe en **lecture seule** :
 consultation et impression possibles, plus aucun enregistrement (paiement, élève, note…).
 
-Dans PowerShell, dans `C:\laragon\www\lakoli` :
+Dans PowerShell **en administrateur** (seul un administrateur peut lire la configuration), placé dans
+`C:\LAKOLI\app` (`cd C:\LAKOLI\app`) :
 
 | Commande | Effet |
 |---|---|
-| `php artisan lakoli:essai` | Affiche l'état (jours restants) |
-| `php artisan lakoli:essai 30` | Essai de 30 jours à partir d'aujourd'hui (sert aussi à prolonger) |
-| `php artisan lakoli:essai --jusqu-au=2026-12-31` | Essai jusqu'à cette date incluse |
-| `php artisan lakoli:essai --activer` | Abonnement payé : plus aucune limite |
-| `php artisan lakoli:essai --suspendre` | Lecture seule immédiate |
+| `..\php\php.exe artisan lakoli:essai` | Affiche l'état (jours restants) |
+| `..\php\php.exe artisan lakoli:essai 30` | Essai de 30 jours à partir d'aujourd'hui (sert aussi à prolonger) |
+| `..\php\php.exe artisan lakoli:essai --jusqu-au=2026-12-31` | Essai jusqu'à cette date incluse |
+| `..\php\php.exe artisan lakoli:essai --activer` | Abonnement payé : plus aucune limite |
+| `..\php\php.exe artisan lakoli:essai --suspendre` | Lecture seule immédiate |
 
 L'école voit le changement en rechargeant la page (F5).
 
@@ -218,15 +250,16 @@ L'école voit le changement en rechargeant la page (F5).
 
 | Problème | Solution |
 |---|---|
-| La page ne s'ouvre pas | Laragon est-il démarré ? Cliquez **Tout démarrer**. |
+| La page ne s'ouvre pas | Lancez `verifier.ps1` (section 3). Un service arrêté : outil **Services** de Windows, clic droit sur **LAKOLI Web** (ou **LAKOLI PHP 1**, **2**) > **Démarrer**. Sinon, redémarrez le PC. |
+| Une fenêtre de licence Laragon apparaît | Ancienne installation : faites le passage à la nouvelle méthode (section 8). |
 | Le raccourci LAKOLI a disparu du Bureau | Menu Démarrer > LAKOLI, ou relancer `installer.ps1 -MiseAJour` (le recrée). |
-| Erreur « 500 » ou page blanche | Laragon > PHP > Version : **php-8.5.8-nts-x64** doit être choisi, puis Arrêter / Tout démarrer. |
+| Erreur « 500 » ou page blanche | Redémarrez le PC ; si l'erreur reste, voir le journal ci-dessous. |
 | « Trop de tentatives » à la connexion | Attendez une minute, puis ressaisissez le mot de passe sans erreur. |
 | Les autres ordinateurs n'ouvrent pas LAKOLI | Normal avec cette installation : voir section 6. |
 | Un code de vérification est demandé | L'adresse ou l'accès n'est plus local : voir section 6 et le journal. |
 | Mot de passe oublié (un utilisateur) | Le fondateur ou le directeur le réinitialise dans Paramètres > Utilisateurs & rôles. |
 | Mot de passe PostgreSQL (`postgres`) oublié | Script `reinitialiser-mot-de-passe-postgres.ps1` : voir ci-dessous. |
-| Détail technique d'une erreur | Journal : `C:\laragon\www\lakoli\storage\logs\` (fichier du jour). |
+| Détail technique d'une erreur | Journaux : `C:\LAKOLI\app\storage\logs\` (application, fichier du jour) et `C:\LAKOLI\logs\` (serveur web, PHP, services). |
 
 ### Mot de passe PostgreSQL oublié
 
@@ -258,8 +291,8 @@ une installation existante.
 > comptes). Faites d'abord une sauvegarde (section 7) et copiez-la sur une clé USB si ces données
 > doivent être conservées.
 
-**Laragon, PostgreSQL et PHP restent installés** : la nouvelle installation les réutilise. Le dossier
-des sauvegardes `C:\LAKOLI-Sauvegardes` est conservé lui aussi : supprimez-le à la main si besoin.
+**PostgreSQL reste installé** : la nouvelle installation le réutilise. Le dossier des sauvegardes
+`C:\LAKOLI-Sauvegardes` est conservé lui aussi : supprimez-le à la main si besoin.
 
 ### Méthode conseillée : le script
 
@@ -271,97 +304,56 @@ des sauvegardes `C:\LAKOLI-Sauvegardes` est conservé lui aussi : supprimez-le �
 3. Répondez **O** pour faire d'abord une sauvegarde (conseillé), puis tapez **SUPPRIMER** en majuscules
    pour confirmer. Le mot de passe du compte `postgres` est demandé.
 
-Le script arrête Laragon, supprime la base, l'application, le site Apache, la sauvegarde automatique
-de 18 h et les raccourcis, puis affiche un **bilan** : chaque ligne doit être verte. Une ligne rouge
-indique ce qui reste ; corrigez-la et relancez le script, qui ne refait que ce qui manque.
+Le script arrête et supprime les services LAKOLI, la base, le dossier `C:\LAKOLI`, la sauvegarde
+automatique de 18 h et les raccourcis. Il supprime aussi une ancienne installation Laragon de LAKOLI
+(`C:\laragon\www\lakoli` et son site Apache) si elle est encore là, sans toucher à Laragon lui-même.
+Il affiche enfin un **bilan** : chaque ligne doit être verte. Une ligne rouge indique ce qui reste ;
+corrigez-la et relancez le script, qui ne refait que ce qui manque.
 
 ### Méthode manuelle (si le script n'est pas disponible)
 
-Chaque étape peut se faire **à la souris (méthode A)** ou **par commande (méthode B)**. Les deux
-donnent le même résultat : choisissez la plus confortable.
+Toutes les commandes se tapent dans PowerShell **en administrateur** : menu Démarrer, tapez
+`PowerShell`, clic droit > **Exécuter en tant qu'administrateur**.
 
-> **Conseil pour la méthode B** : ne retapez pas les commandes. Copiez chaque ligne depuis ce guide,
-> puis collez-la dans PowerShell par un **clic droit** et validez avec **Entrée**. Une seule faute
-> de frappe (un guillemet, un espace, une barre `\`) suffit à faire échouer la commande.
-> PowerShell doit être ouvert **en administrateur** : menu Démarrer, tapez `PowerShell`, clic droit >
-> **Exécuter en tant qu'administrateur**.
+> Ne retapez pas les commandes : copiez chaque ligne depuis ce guide, collez-la dans PowerShell par
+> un **clic droit** et validez avec **Entrée**. Une seule faute de frappe (un guillemet, un espace,
+> une barre `\`) suffit à faire échouer la commande.
 
-### Étape 1 : arrêter Laragon
+**Étape 1 : arrêter et supprimer les services LAKOLI**
+```
+foreach ($s in "LAKOLI-Web", "LAKOLI-PHP-1", "LAKOLI-PHP-2") { Stop-Service $s -Force; sc.exe delete $s }
+```
 
-- **A et B** : dans Laragon, cliquez **Arrêter**, puis fermez Laragon complètement : clic droit sur son
-  icône près de l'horloge > **Quitter**. Sinon, des fichiers de LAKOLI restent ouverts et ne
-  peuvent pas être supprimés.
+**Étape 2 : supprimer la base de données** (demande le mot de passe `postgres`). Ou, à la souris,
+dans **pgAdmin 4** : Databases > clic droit sur **lakoli_db** > **Delete (Force)**, puis Login/Group
+Roles > clic droit sur **lakoli_user** > **Delete**.
+```
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -c "DROP DATABASE IF EXISTS lakoli_db WITH (FORCE)" -c "DROP ROLE IF EXISTS lakoli_user"
+```
 
-### Étape 2 : supprimer la base de données
+**Étape 3 : supprimer le dossier de LAKOLI** (message « fichier utilisé » : redémarrez le PC et
+recommencez à l'étape 1)
+```
+Remove-Item C:\LAKOLI -Recurse -Force
+```
 
-- **A. Avec pgAdmin** (installé avec PostgreSQL) :
-  1. Ouvrez **pgAdmin 4** depuis le menu Démarrer, puis saisissez le mot de passe `postgres`.
-  2. À gauche : **Servers** > **PostgreSQL 18** > **Databases**.
-  3. Clic droit sur **lakoli_db** > **Delete (Force)** (ou **Delete**), puis confirmez.
-  4. Toujours à gauche : **Login/Group Roles** > clic droit sur **lakoli_user** > **Delete**, puis confirmez.
-- **B. Par commande** (demande le mot de passe `postgres`) :
-  ```
-  & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -c "DROP DATABASE IF EXISTS lakoli_db WITH (FORCE)" -c "DROP ROLE IF EXISTS lakoli_user"
-  ```
+**Étape 4 : supprimer la sauvegarde automatique de 18 h** (ou, à la souris : Planificateur de tâches >
+Bibliothèque > clic droit sur **LAKOLI - Sauvegarde** > **Supprimer**)
+```
+Unregister-ScheduledTask -TaskName "LAKOLI - Sauvegarde" -Confirm:$false
+```
 
-### Étape 3 : supprimer l'application
+**Étape 5 : supprimer les raccourcis LAKOLI**
+```
+Remove-Item "C:\Users\Public\Desktop\LAKOLI.*", "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\LAKOLI.*" -Force
+```
 
-- **A. Explorateur de fichiers** : ouvrez `C:\laragon\www`, clic droit sur le dossier **lakoli** >
-  **Supprimer**.
-- **B. Par commande** :
-  ```
-  Remove-Item C:\laragon\www\lakoli -Recurse -Force
-  ```
+**Étape 6 (seulement pour une toute première installation de test) : règle de pare-feu** des
+premiers paquets d'essai
+```
+Remove-NetFirewallRule -DisplayName "LAKOLI (port 8080)"
+```
 
-En cas de message « fichier utilisé par un autre programme », Laragon n'est pas complètement fermé :
-reprenez l'étape 1.
-
-### Étape 4 : supprimer le site Apache de LAKOLI
-
-- **A. Explorateur de fichiers** : ouvrez `C:\laragon\etc\apache2\sites-enabled`, clic droit sur
-  **lakoli-ecole.conf** > **Supprimer**.
-- **B. Par commande** :
-  ```
-  Remove-Item C:\laragon\etc\apache2\sites-enabled\lakoli-ecole.conf -Force
-  ```
-
-### Étape 5 : supprimer la sauvegarde automatique de 18 h
-
-- **A. Planificateur de tâches** : menu Démarrer, tapez `Planificateur de tâches` et ouvrez-le.
-  À gauche, cliquez **Bibliothèque du Planificateur de tâches** ; au centre, clic droit sur
-  **LAKOLI - Sauvegarde** > **Supprimer**, puis **Oui**.
-- **B. Par commande** :
-  ```
-  Unregister-ScheduledTask -TaskName "LAKOLI - Sauvegarde" -Confirm:$false
-  ```
-
-### Étape 6 : supprimer les raccourcis LAKOLI
-
-- **A. Explorateur de fichiers** : sur le Bureau, clic droit sur **LAKOLI** > **Supprimer**. Pour le
-  menu Démarrer, collez cette adresse dans la barre d'adresse de l'Explorateur, puis supprimez
-  **LAKOLI** : `C:\ProgramData\Microsoft\Windows\Start Menu\Programs`
-- **B. Par commande** :
-  ```
-  Remove-Item "C:\Users\Public\Desktop\LAKOLI.*", "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\LAKOLI.*" -Force
-  ```
-
-### Étape 7 (seulement pour une toute première installation de test) : règle de pare-feu
-
-Les premiers paquets d'essai créaient une règle de pare-feu « LAKOLI (port 8080) ». Les paquets
-actuels n'en créent plus. Si elle existe :
-
-- **A. Pare-feu** : menu Démarrer, tapez `Pare-feu Windows Defender avec fonctions avancées de
-  sécurité`. À gauche, **Règles de trafic entrant** ; clic droit sur **LAKOLI (port 8080)** >
-  **Supprimer**.
-- **B. Par commande** :
-  ```
-  Remove-NetFirewallRule -DisplayName "LAKOLI (port 8080)"
-  ```
-
-### Vérifier
-
-- Le dossier `C:\laragon\www\lakoli` n'existe plus ;
-- dans pgAdmin, **lakoli_db** n'apparaît plus sous **Databases** ;
-- **LAKOLI - Sauvegarde** n'apparaît plus dans le Planificateur de tâches.
-
-Vous pouvez ensuite réinstaller (section 2) puis redémarrer Laragon (section 3).
+**Vérifier** : le dossier `C:\LAKOLI` n'existe plus, **LAKOLI Web** n'apparaît plus dans l'outil
+**Services**, et **LAKOLI - Sauvegarde** n'apparaît plus dans le Planificateur de tâches. Vous pouvez
+ensuite réinstaller (section 2).

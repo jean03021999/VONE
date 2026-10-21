@@ -72,8 +72,11 @@ class InstallerEtablissement extends Command
             return self::FAILURE;
         }
 
-        $motDePasse = $this->secret('Mot de passe du fondateur (8 caractères minimum)');
-        if (strlen((string) $motDePasse) < 8 || $motDePasse !== $this->secret('Confirmez le mot de passe')) {
+        // Installation automatisee (essais) : mot de passe lu dans la variable d'environnement, jamais en
+        // option (il resterait dans l'historique des commandes).
+        $motDePasseEnv = getenv('LAKOLI_MDP_FONDATEUR') ?: null;
+        $motDePasse = $motDePasseEnv ?? $this->secret('Mot de passe du fondateur (8 caractères minimum)');
+        if (strlen((string) $motDePasse) < 8 || ($motDePasseEnv === null && $motDePasse !== $this->secret('Confirmez le mot de passe'))) {
             $this->error('Mot de passe trop court ou confirmation différente.');
             return self::FAILURE;
         }

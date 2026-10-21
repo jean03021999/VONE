@@ -1,118 +1,242 @@
 ﻿# Installation de LAKOLI sur UN SEUL POSTE d'une école (à lancer EN ADMINISTRATEUR, depuis le paquet).
 #
-# Prérequis (voir GUIDE-INSTALLATION.md) : Laragon installé dans C:\laragon, PostgreSQL installé
-# (mot de passe du compte « postgres » connu).
+# Prérequis (voir GUIDE-INSTALLATION.md) : PostgreSQL installé (mot de passe du compte « postgres »
+# connu). Tout le reste est dans le paquet, en logiciels gratuits même pour un usage commercial :
+# PHP officiel (windows.php.net), Caddy (serveur web), WinSW (services Windows), Visual C++.
 #
 # Ce script :
-#   1. installe PHP 8.5 dans Laragon et l'application dans C:\laragon\www\lakoli ;
+#   1. installe Visual C++ (nécessaire à PHP), PHP, Caddy et l'application dans C:\LAKOLI ;
 #   2. crée la base PostgreSQL et son utilisateur (mot de passe aléatoire, stocké dans .env) ;
 #   3. configure l'application à partir de deploiement\.env.ecole (production, débogage coupé,
 #      code de vérification désactivé car accès local uniquement), crée les tables, puis
 #      l'établissement et le compte du fondateur ;
-#   4. crée le site Apache, à l'écoute sur 127.0.0.1 seulement (aucun accès depuis le réseau) ;
-#   5. programme une sauvegarde automatique chaque jour à 18 h et en fait une tout de suite.
+#   4. crée trois services Windows (serveur web + deux PHP), à l'écoute sur 127.0.0.1 seulement,
+#      démarrés avec Windows avant même l'ouverture de session, sans aucune fenêtre ;
+#   5. crée le raccourci « LAKOLI » et programme une sauvegarde chaque jour à 18 h.
 #
-# Mise à jour d'une installation existante (nouveau paquet) : ajouter -MiseAJour. Le .env, les
-# fichiers déposés (logos, photos, justificatifs) et la base sont conservés ; une sauvegarde est
-# faite avant.
+# Mise à jour (nouveau paquet) : ajouter -MiseAJour. Le .env, les fichiers déposés (logos, photos,
+# justificatifs) et la base sont conservés ; une sauvegarde est faite avant. Sur un PC installé avec
+# Laragon (C:\laragon\www\lakoli), -MiseAJour fait le passage à la nouvelle méthode : mêmes données,
+# même .env, Laragon arrêté et désactivé (il reste sur le disque, on peut le désinstaller ensuite).
 #
 # Utilisation :  powershell -ExecutionPolicy Bypass -File installer.ps1 [-MiseAJour]
 #
-# Essai sur un poste de développement (sans toucher à l'installation existante) : -Laragon et -App
-# vers un dossier d'essai, -Base / -UtilisateurBase / -Port / -PortBase dédiés, -AdminBase (rôle PostgreSQL
-# autorisé à créer bases et rôles), -DossierSauvegardes, -SansTachePlanifiee. Le mot de passe
-# d'administration PostgreSQL peut être fourni par la variable LAKOLI_PG_ADMIN_MDP.
-# -DossiersRaccourcis : dossiers où créer le raccourci LAKOLI (par défaut : Bureau commun et menu
-# Démarrer commun, visibles par tous les comptes Windows du PC).
+# Essai sur un poste de développement (sans toucher à l'installation existante) : -Racine vers un
+# dossier d'essai, -Nom (préfixe des services et de la tâche), -Port / -PortPhp / -Base /
+# -UtilisateurBase / -PortBase dédiés, -AdminBase, -DossierSauvegardes, -DossiersRaccourcis,
+# -Laragon vers une fausse installation Laragon. Mots de passe sans saisie : variables
+# LAKOLI_PG_ADMIN_MDP (compte postgres) et LAKOLI_MDP_FONDATEUR, options de lakoli:installer dans
+# -OptionsEtablissement.
 
 param(
     [switch]$MiseAJour,
-    [string]$Laragon = "C:\laragon",
+    [string]$Racine = "C:\LAKOLI",
+    [string]$Nom = "LAKOLI",
     [int]$Port = 8080,
+    # Deux PHP : $PortPhp et $PortPhp + 1.
+    [int]$PortPhp = 9101,
     [string]$Base = "lakoli_db",
     [string]$UtilisateurBase = "lakoli_user",
-    [string]$App = "",
     [string]$AdminBase = "postgres",
     # Port de PostgreSQL (5432 par défaut) : une autre instance pour les essais.
     [int]$PortBase = 5432,
     [string]$DossierSauvegardes = "C:\LAKOLI-Sauvegardes",
-    [switch]$SansTachePlanifiee,
     [string[]]$DossiersRaccourcis = @(),
+    # Ancienne installation par Laragon, reprise par -MiseAJour.
+    [string]$Laragon = "C:\laragon",
     # Jours d'essai gratuit de la nouvelle école (0 = abonnement actif d'emblée). Ensuite :
     # php artisan lakoli:essai pour prolonger, activer ou suspendre.
-    [int]$Essai = 30
+    [int]$Essai = 30,
+    [string[]]$OptionsEtablissement = @()
 )
 
 $ErrorActionPreference = "Stop"
 $paquet = $PSScriptRoot
-$app = if ($App) { $App } else { Join-Path $Laragon "www\lakoli" }
-$versionPhp = "php-8.5.8-nts-x64"
-$dossierPhp = Join-Path $Laragon "bin\php\$versionPhp"
+$app = Join-Path $Racine "app"
+$dossierPhp = Join-Path $Racine "php"
 $php = Join-Path $dossierPhp "php.exe"
+$dossierCaddy = Join-Path $Racine "caddy"
+$dossierServices = Join-Path $Racine "services"
+$journaux = Join-Path $Racine "logs"
+$tmpPhp = Join-Path $Racine "tmp\php"
+$ancienneApp = Join-Path $Laragon "www\lakoli"
+$nomTache = "$Nom - Sauvegarde"
+$services = @(
+    @{ Id = "$Nom-PHP-1"; Libelle = "$Nom PHP 1"; Port = $PortPhp },
+    @{ Id = "$Nom-PHP-2"; Libelle = "$Nom PHP 2"; Port = $PortPhp + 1 },
+    @{ Id = "$Nom-Web"; Libelle = "$Nom Web"; Port = $Port }
+)
+# Comptes Windows par identifiant (SID), valables quelle que soit la langue de Windows.
+$sidAdmins = "*S-1-5-32-544"; $sidSysteme = "*S-1-5-18"; $sidUtilisateurs = "*S-1-5-32-545"; $sidServiceLocal = "*S-1-5-19"
 
 function Etape($texte) { Write-Host ""; Write-Host "==> $texte" -ForegroundColor Cyan }
 function Echec($texte) { Write-Host ""; Write-Host "ERREUR : $texte" -ForegroundColor Red; exit 1 }
 function Artisan { & $php (Join-Path $app "artisan") @args; if ($LASTEXITCODE -ne 0) { Echec "php artisan $($args -join ' ') a échoué." } }
+function EcrireTexte($chemin, $texte) { [IO.File]::WriteAllText($chemin, $texte, (New-Object Text.UTF8Encoding $false)) }
+function Copier($source, $cible, [string[]]$options = @()) {
+    robocopy $source $cible /E /NFL /NDL /NJH /NJS /NP @options | Out-Null
+    if ($LASTEXITCODE -ge 8) { Echec "la copie de $source vers $cible a échoué (robocopy $LASTEXITCODE)." }
+}
+# Programme externe dont la sortie d'erreur est lue : sous PowerShell 5.1, « 2>&1 » avec
+# ErrorActionPreference=Stop transformerait la moindre ligne d'erreur (même un simple journal) en échec.
+function Externe($programme) {
+    $ErrorActionPreference = "Continue"
+    & $programme @args 2>&1 | ForEach-Object { "$_" }
+}
+function ArreterServices {
+    foreach ($s in $services) {
+        $service = Get-Service $s.Id -ErrorAction SilentlyContinue
+        if ($service -and $service.Status -ne "Stopped") { Stop-Service $s.Id -Force -ErrorAction SilentlyContinue }
+    }
+    # Un php-cgi resté bloqué garderait les DLL de PHP ouvertes (copie impossible).
+    Get-Process php-cgi, caddy -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($Racine, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force
+}
 
 # --- Vérifications ---------------------------------------------------------------------------
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $admin -and -not $SansTachePlanifiee) { Echec "lancez PowerShell en administrateur (clic droit > Exécuter en tant qu'administrateur)." }
-if (-not (Test-Path (Join-Path $Laragon "laragon.exe"))) { Echec "Laragon introuvable dans $Laragon. Installez-le d'abord (voir le guide)." }
+if (-not $admin) { Echec "lancez PowerShell en administrateur (clic droit > Exécuter en tant qu'administrateur)." }
+foreach ($f in "php\php-cgi.exe", "caddy\caddy.exe", "outils\WinSW.NET461.exe", "outils\vc_redist.x64.exe", "lakoli\artisan") {
+    if (-not (Test-Path (Join-Path $paquet $f))) { Echec "paquet incomplet : $f manquant. Lancez installer.ps1 depuis le dossier du paquet extrait." }
+}
 
 $pgBin = Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\psql.exe" -ErrorAction SilentlyContinue |
     Sort-Object { [int]$_.Directory.Parent.Name } -Descending | Select-Object -First 1 | ForEach-Object { $_.DirectoryName }
 if (-not $pgBin) { Echec "PostgreSQL introuvable dans C:\Program Files\PostgreSQL. Installez-le d'abord (voir le guide)." }
 $psql = Join-Path $pgBin "psql.exe"
 
+$installee = Test-Path (Join-Path $app ".env")
+$migration = $false
 if ($MiseAJour) {
-    if (-not (Test-Path (Join-Path $app ".env"))) { Echec "aucune installation trouvée dans $app : relancez sans -MiseAJour." }
-} elseif (Test-Path (Join-Path $app ".env")) {
-    Echec "LAKOLI est déjà installé dans $app. Pour installer une nouvelle version : -MiseAJour."
-}
-
-# --- 1. PHP et application -----------------------------------------------------------------
-Etape "PHP 8.5"
-if (-not (Test-Path $php)) {
-    New-Item -ItemType Directory -Force (Split-Path $dossierPhp) | Out-Null
-    Copy-Item (Join-Path $paquet $versionPhp) $dossierPhp -Recurse
-}
-# Dossier temporaire propre a PHP pour les fichiers envoyes (photos, logo, justificatifs). Sans
-# lui, Apache (FastCGI) les depose dans C:\Windows\Temp, que le compte Windows ordinaire ne peut
-# pas parcourir : realpath() echoue et Laravel plante (« Path must not be empty »). Refait a
-# chaque mise a jour, le dossier PHP d'une installation existante n'etant pas recopie.
-$tmpPhp = Join-Path $Laragon "tmp\php"
-New-Item -ItemType Directory -Force $tmpPhp | Out-Null
-$iniPhp = Join-Path $dossierPhp "php.ini"
-$contenuIni = [IO.File]::ReadAllText($iniPhp)
-foreach ($cle in "upload_tmp_dir", "sys_temp_dir") {
-    $reglage = "$cle = `"$($tmpPhp -replace '\\', '/')`""
-    $motif = "(?m)^[ \t;]*$cle[ \t]*=[^\r\n]*"
-    if ($contenuIni -match $motif) {
-        $contenuIni = $contenuIni -replace $motif, $reglage
-    } else {
-        $contenuIni += "`r`n$reglage`r`n"
+    if (-not $installee) {
+        if (-not (Test-Path (Join-Path $ancienneApp ".env"))) { Echec "aucune installation trouvée ($app ou $ancienneApp) : relancez sans -MiseAJour." }
+        $migration = $true
     }
+} elseif ($installee) {
+    Echec "LAKOLI est déjà installé dans $app. Pour installer une nouvelle version : -MiseAJour."
+} elseif (Test-Path (Join-Path $ancienneApp ".env")) {
+    Echec "LAKOLI est déjà installé avec Laragon ($ancienneApp). Relancez avec -MiseAJour : il passera à la nouvelle méthode en gardant toutes les données."
 }
-[IO.File]::WriteAllText($iniPhp, $contenuIni)
+# Mise à jour : l'application en service, à sauvegarder avant toute modification.
+$appEnService = if ($migration) { $ancienneApp } else { $app }
+if ($migration) {
+    Write-Host ""
+    Write-Host "Passage de Laragon à la nouvelle méthode : $ancienneApp -> $app (données conservées)." -ForegroundColor Yellow
+}
 
-& $php -r "exit(extension_loaded('pdo_pgsql') ? 0 : 1);" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Echec "PHP ne démarre pas ou l'extension PostgreSQL manque. Installez « Microsoft Visual C++ Redistributable 2015-2022 (x64) » puis relancez."
+# Le port de LAKOLI doit être libre (hors services LAKOLI eux-mêmes, arrêtés plus bas).
+$pidsLakoli = Get-Process php-cgi, caddy -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($Racine, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.Id }
+$occupe = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+    Where-Object { $_.LocalPort -in @($Port, $PortPhp, ($PortPhp + 1)) -and $pidsLakoli -notcontains $_.OwningProcess -and
+        -not ($migration -and (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).Path -like "$Laragon\*") }
+if ($occupe) {
+    $programme = (Get-Process -Id ($occupe | Select-Object -First 1).OwningProcess -ErrorAction SilentlyContinue).Path
+    Echec "le port $(($occupe | Select-Object -First 1).LocalPort) est déjà utilisé par $programme. Arrêtez ce programme (Laragon ?) puis relancez."
 }
+
+# --- 1. Visual C++, sauvegarde, arrêt -------------------------------------------------------
+Etape "Microsoft Visual C++ (nécessaire à PHP)"
+$vc = Start-Process (Join-Path $paquet "outils\vc_redist.x64.exe") -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+# 1638 : version égale ou plus récente déjà installée ; 3010 : redémarrage conseillé, PHP marche déjà.
+if ($vc.ExitCode -notin 0, 1638, 3010) { Echec "installation de Visual C++ impossible (code $($vc.ExitCode))." }
 
 if ($MiseAJour) {
     Etape "Sauvegarde avant mise à jour"
-    $null | & powershell -ExecutionPolicy Bypass -File (Join-Path $app "deploiement\sauvegarde.ps1") -App $app -Destination $DossierSauvegardes
-    if ($LASTEXITCODE -ne 0) { Echec "la sauvegarde a échoué : mise à jour annulée." }
-    Artisan down
+    $null | & powershell -ExecutionPolicy Bypass -File (Join-Path $paquet "sauvegarde.ps1") -App $appEnService -Destination $DossierSauvegardes
+    if ($LASTEXITCODE -ne 0) { Echec "la sauvegarde a échoué : mise à jour annulée, rien n'a été modifié." }
 }
 
-Etape "Copie de l'application dans $app"
+if ($migration) {
+    Etape "Arrêt et désactivation de Laragon"
+    $racineLaragon = (Resolve-Path $Laragon).Path
+    Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($racineLaragon, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force
+    # Démarrage avec Windows : entrées « Run » de la machine et des comptes ouverts, raccourcis du
+    # dossier Démarrage de chaque compte.
+    $cles = @("HKLM:\Software\Microsoft\Windows\CurrentVersion\Run", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run") +
+        (Get-ChildItem Registry::HKEY_USERS -ErrorAction SilentlyContinue | ForEach-Object { "Registry::$($_.Name)\Software\Microsoft\Windows\CurrentVersion\Run" })
+    foreach ($cle in $cles) {
+        $valeurs = Get-ItemProperty $cle -ErrorAction SilentlyContinue
+        if (-not $valeurs) { continue }
+        foreach ($p in $valeurs.PSObject.Properties) {
+            if ($p.Name -notlike "PS*" -and "$($p.Value)" -like "*laragon.exe*") {
+                Remove-ItemProperty $cle -Name $p.Name -ErrorAction SilentlyContinue
+                Write-Host "  démarrage automatique retiré : $($p.Name)"
+            }
+        }
+    }
+    Get-ChildItem "C:\Users\*\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\*", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\*" -Include "*laragon*" -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Force; Write-Host "  démarrage automatique retiré : $($_.FullName)" }
+    # Si un compte où l'entrée n'a pas pu être vue lance encore laragon.exe, il ne le trouve plus.
+    $exeLaragon = Join-Path $Laragon "laragon.exe"
+    if (Test-Path $exeLaragon) { Rename-Item $exeLaragon "laragon.exe.desactive" -Force }
+    # Ancien site Apache (il prendrait le port $Port si Laragon était relancé).
+    $siteApache = Join-Path $Laragon "etc\apache2\sites-enabled\lakoli-ecole.conf"
+    if (Test-Path $siteApache) { Move-Item $siteApache "$siteApache.desactive" -Force }
+}
+
+if ($installee) {
+    Etape "Arrêt des services LAKOLI"
+    ArreterServices
+}
+
+# --- 2. PHP, Caddy, application ------------------------------------------------------------
+Etape "PHP, serveur web et application dans $Racine"
+foreach ($d in $Racine, $journaux, $tmpPhp, (Join-Path $dossierCaddy "donnees"), (Join-Path $dossierCaddy "config"), $dossierServices) {
+    New-Item -ItemType Directory -Force $d | Out-Null
+}
+# /MIR : PHP exactement celui du paquet (anciennes DLL retirées) ; php.ini refait juste après.
+robocopy (Join-Path $paquet "php") $dossierPhp /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { Echec "la copie de PHP a échoué (robocopy $LASTEXITCODE)." }
+Copy-Item (Join-Path $paquet "caddy\*") $dossierCaddy -Recurse -Force
+
+# php.ini : modèle « production » de PHP + réglages de LAKOLI.
+$ini = [IO.File]::ReadAllText((Join-Path $dossierPhp "php.ini-production"))
+$a = { param($chemin) ($chemin -replace '\\', '/') }
+$reglages = [ordered]@{
+    extension_dir = "`"$(& $a (Join-Path $dossierPhp 'ext'))`""
+    memory_limit = "256M"
+    max_execution_time = "60"
+    upload_max_filesize = "10M"
+    post_max_size = "12M"
+    realpath_cache_size = "4096k"
+    # Fichiers envoyés (photos, logo, justificatifs) dans un dossier propre à LAKOLI (cf. le
+    # problème du 7 octobre : C:\Windows\Temp illisible par le compte du serveur).
+    upload_tmp_dir = "`"$(& $a $tmpPhp)`""
+    sys_temp_dir = "`"$(& $a $tmpPhp)`""
+    error_log = "`"$(& $a (Join-Path $journaux 'php-erreurs.log'))`""
+    "opcache.enable" = "1"
+    "opcache.memory_consumption" = "192"
+    "opcache.max_accelerated_files" = "20000"
+    "opcache.validate_timestamps" = "1"
+    "opcache.revalidate_freq" = "2"
+}
+foreach ($cle in $reglages.Keys) {
+    $ligne = "$cle = $($reglages[$cle])"
+    $motif = "(?m)^[ \t;]*$([regex]::Escape($cle))[ \t]*=[^\r\n]*"
+    if ([regex]::IsMatch($ini, $motif)) { $ini = ([regex]$motif).Replace($ini, $ligne, 1) } else { $ini += "`r`n$ligne`r`n" }
+}
+foreach ($ext in "curl", "fileinfo", "gd", "mbstring", "openssl", "pdo_pgsql", "pgsql", "zip") {
+    # (?=\r?$) : fin de ligne Windows (\r\n) dans php.ini-production.
+    $motif = "(?m)^[ \t;]*extension[ \t]*=[ \t]*$ext[ \t]*(?=\r?$)"
+    if ([regex]::IsMatch($ini, $motif)) { $ini = ([regex]$motif).Replace($ini, "extension=$ext", 1) } else { $ini += "`r`nextension=$ext`r`n" }
+}
+EcrireTexte (Join-Path $dossierPhp "php.ini") $ini
+
+$manquantes = Externe $php -r "echo implode(' ', array_filter(['pgsql','pdo_pgsql','mbstring','openssl','fileinfo','gd','zip','curl','Zend OPcache'], fn(`$e) => !extension_loaded(`$e)));"
+if ($LASTEXITCODE -ne 0) { Echec "PHP ne démarre pas : $manquantes" }
+if ($manquantes) { Echec "extensions PHP manquantes : $manquantes" }
+
+Write-Host "  application"
 # /XD storage /XF .env : en mise à jour, on garde la configuration et les fichiers déposés.
-robocopy (Join-Path $paquet "lakoli") $app /E /NFL /NDL /NJH /NJS /NP /XD (Join-Path $paquet "lakoli\storage") /XF .env | Out-Null
-if ($LASTEXITCODE -ge 8) { Echec "la copie de l'application a échoué (robocopy $LASTEXITCODE)." }
-if (-not $MiseAJour) {
-    robocopy (Join-Path $paquet "lakoli\storage") (Join-Path $app "storage") /E /NFL /NDL /NJH /NJS /NP | Out-Null
+Copier (Join-Path $paquet "lakoli") $app @("/XD", (Join-Path $paquet "lakoli\storage"), "/XF", ".env")
+if ($migration) {
+    Write-Host "  reprise du .env et des fichiers déposés de $ancienneApp"
+    Copy-Item (Join-Path $ancienneApp ".env") (Join-Path $app ".env") -Force
+    Copier (Join-Path $ancienneApp "storage") (Join-Path $app "storage") @("/XD", (Join-Path $ancienneApp "storage\framework"))
+} elseif (-not $MiseAJour) {
+    Copier (Join-Path $paquet "lakoli\storage") (Join-Path $app "storage")
 }
 foreach ($d in "storage\app\private", "storage\framework\cache\data", "storage\framework\sessions", "storage\framework\views", "storage\logs", "bootstrap\cache") {
     New-Item -ItemType Directory -Force (Join-Path $app $d) | Out-Null
@@ -135,7 +259,7 @@ if ($MiseAJour) {
     if ($ajouts.Count) {
         $lignesEnv.Add("")
         $lignesEnv.Add("# Ajouté par la mise à jour du $(Get-Date -Format 'dd/MM/yyyy') (voir deploiement\.env.ecole)")
-        foreach ($a in $ajouts) { $lignesEnv.Add($a); Write-Host "  ajouté : $a" }
+        foreach ($x in $ajouts) { $lignesEnv.Add($x); Write-Host "  ajouté : $x" }
     }
     $iLangue = -1
     for ($i = 0; $i -lt $lignesEnv.Count; $i++) { if ($lignesEnv[$i] -match '^APP_LOCALE=en\s*$') { $iLangue = $i } }
@@ -146,11 +270,11 @@ if ($MiseAJour) {
     [IO.File]::WriteAllLines($cheminEnv, $lignesEnv, (New-Object Text.UTF8Encoding $false))
     if (-not $ajouts.Count -and $iLangue -lt 0) { Write-Host "  rien à ajouter." }
 
-    # Règle de pare-feu des tout premiers paquets : LAKOLI n'écoute plus que sur 127.0.0.1.
+    # Règle de pare-feu des tout premiers paquets : LAKOLI n'écoute que sur 127.0.0.1.
     Remove-NetFirewallRule -DisplayName "LAKOLI (port $Port)" -ErrorAction SilentlyContinue
 }
 
-# --- 2 et 3. Base et configuration (première installation) ----------------------------------
+# --- 3. Base et configuration (première installation) ----------------------------------------
 if (-not $MiseAJour) {
     Etape "Base de données PostgreSQL"
     if ($env:LAKOLI_PG_ADMIN_MDP) {
@@ -175,18 +299,21 @@ if (-not $MiseAJour) {
     Etape "Configuration (.env, accès local uniquement)"
     $contenuEnv = [IO.File]::ReadAllText((Join-Path $app "deploiement\.env.ecole"))
     $contenuEnv = $contenuEnv.Replace("__PORT__", "$Port").Replace("__BASE__", $Base).Replace("__UTILISATEUR__", $UtilisateurBase).Replace("__MOT_DE_PASSE__", $mdpBase).Replace("DB_PORT=5432", "DB_PORT=$PortBase")
-    [IO.File]::WriteAllText((Join-Path $app ".env"), $contenuEnv, (New-Object Text.UTF8Encoding $false))
+    EcrireTexte (Join-Path $app ".env") $contenuEnv
     Artisan key:generate --force
 }
 
 Etape "Tables de la base"
+# Caches de l'ancienne installation : chemins de Laragon dans la configuration compilée.
 Artisan config:clear
+Artisan route:clear
+Artisan view:clear
 Artisan migrate --force
 
 if (-not $MiseAJour) {
     Etape "Établissement et compte du fondateur"
-    & $php (Join-Path $app "artisan") lakoli:installer "--essai=$Essai"
-    if ($LASTEXITCODE -ne 0) { Echec "création de l'établissement interrompue. Relancez : php artisan lakoli:installer (dans $app)." }
+    & $php (Join-Path $app "artisan") lakoli:installer "--essai=$Essai" @OptionsEtablissement
+    if ($LASTEXITCODE -ne 0) { Echec "création de l'établissement interrompue. Relancez : $php artisan lakoli:installer (dans $app)." }
 } else {
     # Installations faites avant que l'installateur ne crée les classes : année scolaire et classes
     # courantes proposées si l'année active n'a aucune classe (sinon rien n'est modifié).
@@ -199,27 +326,123 @@ Etape "Optimisation"
 Artisan config:cache
 Artisan route:cache
 Artisan view:cache
-if ($MiseAJour) { Artisan up }
 
-# --- 4. Site Apache (127.0.0.1 seulement) ---------------------------------------------------
-Etape "Site Apache : http://127.0.0.1:$Port (accès depuis ce PC uniquement)"
-$racine = ($app -replace "\\", "/") + "/public"
+# --- 4. Droits sur les dossiers ------------------------------------------------------------
+# Les services tournent sous « Service local » (droits réduits) : lecture seule partout, écriture
+# seulement là où LAKOLI écrit. Les comptes Windows ordinaires lisent l'application mais ne
+# peuvent rien y modifier, ni lire le .env (mot de passe de la base).
+Etape "Droits sur $Racine"
+icacls $Racine /inheritance:r /grant:r "${sidAdmins}:(OI)(CI)F" "${sidSysteme}:(OI)(CI)F" "${sidUtilisateurs}:(OI)(CI)RX" "${sidServiceLocal}:(OI)(CI)RX" /Q | Out-Null
+if ($LASTEXITCODE -ne 0) { Echec "droits sur $Racine non appliqués (icacls $LASTEXITCODE)." }
+foreach ($d in (Join-Path $app "storage"), (Join-Path $app "bootstrap\cache"), (Join-Path $Racine "tmp"), $journaux, (Join-Path $dossierCaddy "donnees"), (Join-Path $dossierCaddy "config")) {
+    icacls $d /grant "${sidServiceLocal}:(OI)(CI)M" /Q | Out-Null
+}
+icacls (Join-Path $app ".env") /inheritance:r /grant:r "${sidAdmins}:F" "${sidSysteme}:F" "${sidServiceLocal}:R" /Q | Out-Null
+
+# --- 5. Services Windows -------------------------------------------------------------------
+Etape "Services Windows (démarrage avec Windows, sans fenêtre)"
+$racinePublique = & $a (Join-Path $app "public")
+$caddyfile = @"
+# LAKOLI : application et API sur http://127.0.0.1:$Port, ce PC uniquement (installé par installer.ps1).
+{
+	admin off
+	auto_https off
+	storage file_system "$(& $a (Join-Path $dossierCaddy 'donnees'))"
+	log {
+		output file "$(& $a (Join-Path $journaux 'caddy.log'))" {
+			roll_size 5MiB
+			roll_keep 3
+		}
+		level WARN
+	}
+}
+
 # Écoute sur 127.0.0.1 : aucun autre ordinateur ne peut joindre LAKOLI. Condition exigée par
 # OTP_ACTIF=false (sinon le code de vérification est réactivé).
-$site = @"
-# LAKOLI : application et API sur http://127.0.0.1:$Port, ce PC uniquement (installé par installer.ps1).
-Listen 127.0.0.1:$Port
-<VirtualHost 127.0.0.1:$Port>
-    DocumentRoot "$racine"
-    <Directory "$racine">
-        AllowOverride All
-        Require all granted
-    </Directory>
-</VirtualHost>
+http://:$Port {
+	bind 127.0.0.1
+	root * "$racinePublique"
+	encode gzip
+	php_fastcgi 127.0.0.1:$PortPhp 127.0.0.1:$($PortPhp + 1) {
+		lb_policy least_conn
+		lb_try_duration 15s
+		# Caddy est le seul serveur (aucun intermédiaire) : sans ces lignes, il ajoute X-Forwarded-For,
+		# que le garde-fou d'OTP_ACTIF=false prend pour un accès par un intermédiaire (code réactivé).
+		header_up -X-Forwarded-For
+		header_up -X-Forwarded-Host
+		header_up -X-Forwarded-Proto
+	}
+	file_server {
+		hide .htaccess web.config
+	}
+}
 "@
-$sites = Join-Path $Laragon "etc\apache2\sites-enabled"
-New-Item -ItemType Directory -Force $sites | Out-Null
-[IO.File]::WriteAllText((Join-Path $sites "lakoli-ecole.conf"), $site, (New-Object Text.UTF8Encoding $false))
+$cheminCaddyfile = Join-Path $dossierCaddy "Caddyfile"
+EcrireTexte $cheminCaddyfile $caddyfile
+$sortie = Externe (Join-Path $dossierCaddy "caddy.exe") validate --config $cheminCaddyfile --adapter caddyfile
+if ($LASTEXITCODE -ne 0) { Echec "configuration du serveur web invalide ($cheminCaddyfile) : $($sortie | Select-Object -Last 3)" }
+
+$xml = { param($texte) [Security.SecurityElement]::Escape($texte) }
+foreach ($s in $services) {
+    if ($s.Id -like "*-Web") {
+        $executable = Join-Path $dossierCaddy "caddy.exe"
+        $arguments = "run --config `"$cheminCaddyfile`" --adapter caddyfile"
+        $description = "LAKOLI : serveur web, http://127.0.0.1:$Port (ce PC uniquement)."
+        $variables = "  <env name=`"XDG_DATA_HOME`" value=`"$(& $xml (Join-Path $dossierCaddy 'donnees'))`"/>`r`n  <env name=`"XDG_CONFIG_HOME`" value=`"$(& $xml (Join-Path $dossierCaddy 'config'))`"/>"
+    } else {
+        $executable = Join-Path $dossierPhp "php-cgi.exe"
+        $arguments = "-b 127.0.0.1:$($s.Port) -c `"$(Join-Path $dossierPhp 'php.ini')`""
+        $description = "LAKOLI : PHP de l'application (127.0.0.1:$($s.Port))."
+        # 0 : php-cgi ne s'arrête jamais de lui-même (sinon il quitte après 500 requêtes).
+        $variables = "  <env name=`"PHP_FCGI_MAX_REQUESTS`" value=`"0`"/>"
+    }
+    $config = @"
+<service>
+  <id>$($s.Id)</id>
+  <name>$(& $xml $s.Libelle)</name>
+  <description>$(& $xml $description)</description>
+  <executable>$(& $xml $executable)</executable>
+  <arguments>$(& $xml $arguments)</arguments>
+  <workingdirectory>$(& $xml $app)</workingdirectory>
+$variables
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="3 sec"/>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <stoptimeout>10 sec</stoptimeout>
+  <logpath>$(& $xml $journaux)</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>2048</sizeThreshold>
+    <keepFiles>3</keepFiles>
+  </log>
+</service>
+"@
+    $exe = Join-Path $dossierServices "$($s.Id).exe"
+    if (Get-Service $s.Id -ErrorAction SilentlyContinue) {
+        & $exe uninstall | Out-Null
+        $attente = 0
+        while ((Get-Service $s.Id -ErrorAction SilentlyContinue) -and $attente -lt 20) { Start-Sleep -Milliseconds 500; $attente++ }
+    }
+    Copy-Item (Join-Path $paquet "outils\WinSW.NET461.exe") $exe -Force
+    EcrireTexte (Join-Path $dossierServices "$($s.Id).xml") $config
+    & $exe install | Out-Null
+    if ($LASTEXITCODE -ne 0) { Echec "service $($s.Id) non créé." }
+    $compte = Get-CimInstance Win32_Service -Filter "Name='$($s.Id)'" |
+        Invoke-CimMethod -MethodName Change -Arguments @{ StartName = "NT AUTHORITY\LocalService"; StartPassword = "" }
+    if ($compte.ReturnValue -ne 0) { Echec "compte du service $($s.Id) non modifié (code $($compte.ReturnValue))." }
+    Start-Service $s.Id
+}
+
+Write-Host "  vérification de http://127.0.0.1:$Port"
+$pret = $false
+for ($i = 0; $i -lt 30 -and -not $pret; $i++) {
+    try {
+        $reponse = Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 5
+        $pret = $reponse.StatusCode -eq 200 -and $reponse.Content -match 'id="root"'
+    } catch { Start-Sleep -Seconds 1 }
+}
+if (-not $pret) { Echec "LAKOLI ne répond pas sur http://127.0.0.1:$Port. Journaux : $journaux et $app\storage\logs." }
 
 # --- Raccourci « LAKOLI » pour les utilisateurs ---------------------------------------------
 Etape "Raccourci LAKOLI (Bureau et menu Démarrer de tous les comptes)"
@@ -291,16 +514,14 @@ foreach ($dossier in $dossiers) {
     }
 }
 
-# --- 5. Sauvegardes ------------------------------------------------------------------------
+# --- 6. Sauvegardes ------------------------------------------------------------------------
 $script = Join-Path $app "deploiement\sauvegarde.ps1"
-if (-not $SansTachePlanifiee) {
-    Etape "Sauvegarde automatique (tous les jours à 18 h)"
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -App `"$app`" -Destination `"$DossierSauvegardes`""
-    $declencheur = New-ScheduledTaskTrigger -Daily -At "18:00"
-    # StartWhenAvailable : si le PC était éteint à 18 h, la sauvegarde se fait au prochain démarrage.
-    $reglages = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-    Register-ScheduledTask -TaskName "LAKOLI - Sauvegarde" -Action $action -Trigger $declencheur -Settings $reglages -User "SYSTEM" -RunLevel Highest -Force | Out-Null
-}
+Etape "Sauvegarde automatique (tous les jours à 18 h)"
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -App `"$app`" -Destination `"$DossierSauvegardes`""
+$declencheur = New-ScheduledTaskTrigger -Daily -At "18:00"
+# StartWhenAvailable : si le PC était éteint à 18 h, la sauvegarde se fait au prochain démarrage.
+$reglagesTache = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+Register-ScheduledTask -TaskName $nomTache -Action $action -Trigger $declencheur -Settings $reglagesTache -User "SYSTEM" -RunLevel Highest -Force | Out-Null
 
 if (-not $MiseAJour) {
     Etape "Première sauvegarde"
@@ -310,11 +531,13 @@ if (-not $MiseAJour) {
 
 # --- Fin ------------------------------------------------------------------------------------
 Write-Host ""
-Write-Host "Installation terminée." -ForegroundColor Green
+Write-Host "Installation terminée : LAKOLI fonctionne." -ForegroundColor Green
 Write-Host ""
-Write-Host "Dernières étapes dans Laragon :"
-Write-Host "  1. Menu > PHP > Version : choisir $versionPhp"
-Write-Host "  2. Cliquer « Arrêter » puis « Tout démarrer »"
-Write-Host ""
-Write-Host "Adresse (sur ce PC uniquement) : http://127.0.0.1:$Port"
+Write-Host "Adresse (sur ce PC uniquement) : $adresse"
 Write-Host "Raccourci « LAKOLI » : sur le Bureau et dans le menu Démarrer de chaque compte Windows."
+Write-Host "LAKOLI démarre tout seul avec Windows : rien d'autre à lancer."
+if ($migration) {
+    Write-Host ""
+    Write-Host "Laragon est arrêté et ne démarre plus avec Windows. L'ancienne copie ($ancienneApp) est" -ForegroundColor Yellow
+    Write-Host "conservée par précaution : quand tout fonctionne, désinstallez Laragon (voir le guide)." -ForegroundColor Yellow
+}

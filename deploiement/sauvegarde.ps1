@@ -9,7 +9,7 @@
 # - Journal : C:\LAKOLI-Sauvegardes\journal.txt
 
 param(
-    [string]$App = "C:\laragon\www\lakoli",
+    [string]$App = "C:\LAKOLI\app",
     [string]$Destination = "C:\LAKOLI-Sauvegardes",
     [int]$JoursConserves = 30,
     [int]$CopiesExternes = 10
@@ -34,8 +34,13 @@ try {
         Sort-Object { [int]$_.Directory.Parent.Name } -Descending | Select-Object -First 1 | ForEach-Object { $_.DirectoryName }
     if (-not $pgBin) { throw "pg_dump introuvable (PostgreSQL non installé ?)." }
 
-    $horodatage = Get-Date -Format "yyyyMMdd-HHmm"
-    $fichierBase = Join-Path $Destination "lakoli-$horodatage.dump"
+    # À la seconde près, et jamais par-dessus une sauvegarde existante : la sauvegarde de sécurité
+    # faite par restaurer.ps1 écrasait sinon, dans la même minute, celle qu'on voulait restaurer.
+    do {
+        $horodatage = Get-Date -Format "yyyyMMdd-HHmmss"
+        $fichierBase = Join-Path $Destination "lakoli-$horodatage.dump"
+        if (Test-Path $fichierBase) { Start-Sleep -Seconds 1 }
+    } while (Test-Path $fichierBase)
     $fichiersDeposes = Join-Path $Destination "fichiers-$horodatage.zip"
 
     $env:PGPASSWORD = $config["DB_PASSWORD"]
@@ -54,7 +59,7 @@ try {
     Journal "OK  base $taille -> $fichierBase"
 
     # Rotation locale.
-    Get-ChildItem $Destination -File | Where-Object { $_.Name -match '^(lakoli|fichiers)-\d{8}-\d{4}\.' -and $_.LastWriteTime -lt (Get-Date).AddDays(-$JoursConserves) } |
+    Get-ChildItem $Destination -File | Where-Object { $_.Name -match '^(lakoli|fichiers)-\d{8}-\d{4}(\d{2})?\.' -and $_.LastWriteTime -lt (Get-Date).AddDays(-$JoursConserves) } |
         Remove-Item -Force
 
     # Copie hors du PC : clés USB / disques externes préparés avec un dossier LAKOLI-SAUVEGARDES.
@@ -62,7 +67,8 @@ try {
         $cible = "$($volume.DriveLetter):\LAKOLI-SAUVEGARDES"
         if (-not (Test-Path $cible) -or $cible.StartsWith($Destination.Substring(0, 2))) { continue }
         Copy-Item $aCopier $cible -Force
-        Get-ChildItem $cible -File -Filter "lakoli-*.dump" | Sort-Object Name -Descending | Select-Object -Skip $CopiesExternes |
+        # Par date : les noms à la minute (anciennes sauvegardes) et à la seconde ne se trient pas ensemble.
+        Get-ChildItem $cible -File -Filter "lakoli-*.dump" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $CopiesExternes |
             ForEach-Object {
                 Remove-Item $_.FullName -Force
                 Remove-Item (Join-Path $cible ($_.Name -replace '^lakoli-(.*)\.dump$', 'fichiers-$1.zip')) -Force -ErrorAction SilentlyContinue

@@ -31,7 +31,14 @@ class EleveController extends Controller
             });
         }
 
-        $eleves = $query->get();
+        // Ordre alphabetique par nom puis prenom, sans tenir compte des majuscules ni des accents.
+        $cleTri = fn ($texte) => mb_strtolower(\Illuminate\Support\Str::ascii((string) $texte));
+        $eleves = $query->get()
+            ->sortBy([
+                fn ($a, $b) => strcmp($cleTri($a->nom), $cleTri($b->nom)),
+                fn ($a, $b) => strcmp($cleTri($a->prenom), $cleTri($b->prenom)),
+            ])
+            ->values();
 
         // Eleve reellement inscrit = au moins un paiement NON annule sur ses frais d'inscription ou de
         // reinscription de la session active (ni l'inscription "active" seule, venue d'un import, ni

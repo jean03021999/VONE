@@ -10,7 +10,7 @@
 #   2. arrête Laragon et l'empêche de démarrer avec Windows (il reste sur le disque) ;
 #   3. donne au compte « Service local » la lecture du dépôt et l'écriture dans storage et
 #      bootstrap\cache ;
-#   4. crée trois services (serveur web + deux PHP) : http://127.0.0.1:8080, une seule adresse
+#   4. crée trois services (serveur web + deux PHP) : http://localhost, une seule adresse
 #      comme à l'école, /api servi par Laravel et l'écran par Vite (npm run dev dans lakoli-web,
 #      à lancer à part ; VITE_API_URL=/api comme dans le paquet).
 #
@@ -23,7 +23,8 @@ param(
     [string]$Outils = "C:\projets\paquets\outils",
     [string]$Racine = "C:\LAKOLI-Dev",
     [string]$Nom = "LAKOLI-Dev",
-    [int]$Port = 8080,
+    # 80 : http://localhost, sans numéro de port.
+    [int]$Port = 80,
     # Deux PHP : $PortPhp et $PortPhp + 1.
     [int]$PortPhp = 9101,
     # Vite (npm run dev de lakoli-web), fixé dans son vite.config.js.
@@ -43,6 +44,7 @@ $services = @(
     @{ Id = "$Nom-PHP-2"; Libelle = "$Nom PHP 2"; Port = $PortPhp + 1 },
     @{ Id = "$Nom-Web"; Libelle = "$Nom Web"; Port = $Port }
 )
+$adresse = if ($Port -eq 80) { "http://localhost" } else { "http://localhost:$Port" }
 $sidAdmins = "*S-1-5-32-544"; $sidSysteme = "*S-1-5-18"; $sidUtilisateurs = "*S-1-5-32-545"; $sidServiceLocal = "*S-1-5-19"
 
 function Etape($texte) { Write-Host ""; Write-Host "==> $texte" -ForegroundColor Cyan }
@@ -173,7 +175,7 @@ foreach ($d in "storage", "bootstrap\cache") {
 Etape "Services Windows (démarrage avec Windows, sans fenêtre)"
 $racinePublique = & $a (Join-Path $Depot "public")
 $caddyfile = @"
-# LAKOLI (développement) : $Depot sur http://127.0.0.1:$Port (installé par poste-developpement.ps1).
+# LAKOLI (développement) : $Depot sur $adresse (installé par poste-developpement.ps1).
 {
 	admin off
 	auto_https off
@@ -190,7 +192,8 @@ $caddyfile = @"
 # Une seule adresse, comme à l'école : /api vers Laravel, tout le reste (l'écran) vers Vite
 # (npm run dev dans lakoli-web, 127.0.0.1:$PortVite), modifications visibles aussitôt.
 http://:$Port {
-	bind 127.0.0.1
+	# localhost : 127.0.0.1 et ::1 (IPv6, essayé en premier par les navigateurs), ce PC uniquement.
+	bind 127.0.0.1 [::1]
 	root * "$racinePublique"
 	encode gzip
 	@laravel path /api /api/* /sanctum/*
@@ -219,7 +222,7 @@ foreach ($s in $services) {
     if ($s.Id -like "*-Web") {
         $executable = Join-Path $dossierCaddy "caddy.exe"
         $arguments = "run --config `"$cheminCaddyfile`" --adapter caddyfile"
-        $description = "LAKOLI (développement) : serveur web, http://127.0.0.1:$Port."
+        $description = "LAKOLI (développement) : serveur web, $adresse."
         $variables = "  <env name=`"XDG_DATA_HOME`" value=`"$(& $xml (Join-Path $dossierCaddy 'donnees'))`"/>`r`n  <env name=`"XDG_CONFIG_HOME`" value=`"$(& $xml (Join-Path $dossierCaddy 'config'))`"/>"
     } else {
         $executable = Join-Path $dossierPhp "php-cgi.exe"
@@ -276,8 +279,8 @@ for ($i = 0; $i -lt 30 -and -not $pret; $i++) {
         if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 401) { $pret = $true } else { Start-Sleep -Seconds 1 }
     }
 }
-if (-not $pret) { Echec "rien ne répond sur http://127.0.0.1:$Port. Journaux : $journaux et $Depot\storage\logs." }
+if (-not $pret) { Echec "rien ne répond sur $adresse. Journaux : $journaux et $Depot\storage\logs." }
 
 Write-Host ""
-Write-Host "Terminé : LAKOLI sur http://127.0.0.1:$Port, démarré avec Windows (l'écran : npm run dev dans lakoli-web)." -ForegroundColor Green
+Write-Host "Terminé : LAKOLI sur $adresse, démarré avec Windows (l'écran : npm run dev dans lakoli-web)." -ForegroundColor Green
 Write-Host "Laragon est arrêté et ne démarre plus avec Windows (il reste dans $Laragon)."

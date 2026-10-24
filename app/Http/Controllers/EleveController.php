@@ -156,7 +156,7 @@ class EleveController extends Controller
         $request->validate([
             'nom' => 'required|string',
             'prenom' => 'required|string',
-            'date_naissance' => 'required|date',
+            'date_naissance' => 'nullable|date',
             'lieu_naissance' => 'nullable|string',
             'classe_id' => 'required|exists:classes,id',
         ]);
@@ -213,7 +213,7 @@ class EleveController extends Controller
         $request->validate([
             'nom' => 'sometimes|string',
             'prenom' => 'sometimes|string',
-            'date_naissance' => 'sometimes|date',
+            'date_naissance' => 'sometimes|nullable|date',
             'lieu_naissance' => 'nullable|string',
             'classe_id' => 'sometimes|exists:classes,id',
             'correction' => 'sometimes|boolean',

@@ -113,6 +113,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/frais/types/{id}', [FraisController::class, 'updateTypeFrais'])->middleware('permission:frais.creer');
     Route::delete('/frais/types/{id}', [FraisController::class, 'destroyTypeFrais'])->middleware('permission:frais.creer');
     Route::post('/frais/paiements/annuler', [FraisController::class, 'annulerPaiements'])->middleware('permission:frais.paiement.enregistrer');
+    Route::post('/frais/paiements/corriger', [FraisController::class, 'corrigerPaiements'])->middleware('permission:frais.paiement.enregistrer');
     Route::post('/frais/appliquer-inscription', [FraisController::class, 'appliquerInscription'])->middleware('permission:frais.creer');
     Route::post('/frais/annuler-inscription', [FraisController::class, 'annulerInscription'])->middleware('permission:frais.paiement.enregistrer');
     Route::get('/frais/eleves/{eleveId}', [FraisController::class, 'suiviEleve'])->middleware('permission:frais.voir');

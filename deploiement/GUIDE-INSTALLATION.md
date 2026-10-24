@@ -198,31 +198,73 @@ Cette opération remplace toutes les données actuelles. L'état actuel est sauv
 
 ---
 
-## 8. Installer une nouvelle version
+## 8. Mettre à jour LAKOLI (nouvelle version)
 
-1. Préparez un nouveau paquet (`deploiement\preparer-paquet.ps1`), puis extrayez-le sur le PC.
-2. Dans PowerShell (administrateur), depuis le dossier extrait :
+La même commande sert pour **toutes** les mises à jour, que LAKOLI ait été installé avec ce paquet
+ou, autrefois, avec Laragon. **Ne désinstallez rien avant** : les données (élèves, paiements,
+comptes), les fichiers déposés (logos, photos, justificatifs) et la configuration sont conservés.
+
+### Avant de partir
+
+- Préparez un nouveau paquet sur le PC de l'équipe LAKOLI (`deploiement\preparer-paquet.ps1`) et
+  copiez le `.zip` **le plus récent** sur la clé USB (voir section 0).
+- Choisissez un moment sans encaissement : LAKOLI est indisponible quelques minutes.
+
+### Sur le PC de l'école
+
+1. Demandez aux utilisateurs de **se déconnecter de LAKOLI** et de fermer sa fenêtre.
+2. Copiez le paquet `.zip` sur le PC (sur le Bureau, par exemple), puis : clic droit > **Extraire tout**.
+3. Ouvrez PowerShell **en administrateur** et placez-le dans le dossier extrait, comme à
+   l'installation (section 2, points 2 et 3 : `cd`, un espace, puis glisser le dossier).
+4. Lancez la mise à jour :
    ```
    powershell -ExecutionPolicy Bypass -File installer.ps1 -MiseAJour
    ```
-   Une sauvegarde est faite avant la mise à jour. Les données, les fichiers déposés et la
-   configuration sont conservés. LAKOLI est indisponible une à deux minutes, puis redémarre tout seul.
+   Aucune question n'est posée : pas besoin du mot de passe `postgres`.
+5. Attendez le message vert **« Installation terminée : LAKOLI fonctionne. »** (5 à 10 minutes).
+6. Ouvrez LAKOLI par le raccourci du Bureau, connectez-vous avec un compte habituel et vérifiez
+   quelques élèves et les derniers paiements du **Journal de caisse**.
+
+Ce que fait la mise à jour, dans l'ordre :
+
+1. une **sauvegarde complète** dans `C:\LAKOLI-Sauvegardes` ; si elle échoue, la mise à jour
+   s'arrête et **rien n'est modifié** ;
+2. l'arrêt de LAKOLI, puis l'installation de la nouvelle version (application, PHP, serveur web) ;
+3. l'ajout au `.env` des nouveaux réglages éventuels, **sans changer** ceux qui existent ;
+4. la mise à jour des tables de la base (nouvelles colonnes), sans toucher aux données ;
+5. le redémarrage des services, la sauvegarde de 18 h et le raccourci LAKOLI.
+
+L'adresse reste **http://127.0.0.1:8080** : le raccourci et les mots de passe enregistrés dans le
+navigateur continuent de fonctionner.
 
 ### PC installé avec Laragon : passage à la nouvelle méthode
 
 Les premières installations utilisaient Laragon, devenu payant (fenêtre de licence au démarrage).
-La même commande `installer.ps1 -MiseAJour` (ci-dessus) fait le passage, **sans perte de données** :
+La même commande `installer.ps1 -MiseAJour` (ci-dessus) le reconnaît toute seule. Elle affiche
+« Passage de Laragon à la nouvelle méthode… (données conservées) » et fait le passage, **sans perte
+de données** :
 
 1. une sauvegarde complète est faite d'abord ; si elle échoue, rien n'est modifié ;
 2. Laragon est arrêté et ne démarre plus avec Windows ;
 3. l'application passe de `C:\laragon\www\lakoli` à `C:\LAKOLI\app`, avec **la même base de
-   données, le même `.env`** et tous les fichiers déposés (logos, photos, justificatifs) ;
-4. les services Windows, la sauvegarde de 18 h et le raccourci LAKOLI sont mis en place.
+   données, le même `.env`** et tous les fichiers déposés (logos, photos, justificatifs). Les
+   données ne sont pas copiées : la nouvelle version se branche sur la même base PostgreSQL ;
+4. les services Windows, la sauvegarde de 18 h et le raccourci LAKOLI sont mis en place. LAKOLI
+   démarre désormais tout seul avec Windows : plus besoin d'ouvrir Laragon.
 
-À la fin, ouvrez LAKOLI par le raccourci et vérifiez quelques élèves et paiements. Par précaution,
+L'adresse ne change pas (http://127.0.0.1:8080, celle qu'utilisait déjà Laragon). Par précaution,
 Laragon et l'ancienne copie `C:\laragon\www\lakoli` restent sur le disque, inactifs. Quand tout
 fonctionne depuis quelques jours, désinstallez Laragon : Paramètres Windows > Applications >
 **Laragon** > Désinstaller (ou supprimez le dossier `C:\laragon` s'il n'apparaît pas dans la liste).
+
+### Si la mise à jour s'arrête sur une erreur
+
+- **Lisez le message rouge** et notez-le (photo de l'écran) pour l'équipe LAKOLI.
+- Une erreur **avant** l'étape « Arrêt des services LAKOLI » (ou « Arrêt et désactivation de
+  Laragon ») : rien n'a été modifié, LAKOLI fonctionne comme avant.
+- Une erreur **après** : corrigez la cause si le message l'indique, puis **relancez la même
+  commande**, qui reprend proprement. Si LAKOLI ne repart pas, restaurez la sauvegarde faite au
+  début de la mise à jour (section 7, « Restaurer une sauvegarde » : c'est la plus récente).
 
 ### Période d'essai (réservé à l'éditeur de LAKOLI)
 
@@ -257,6 +299,7 @@ L'école voit le changement en rechargeant la page (F5).
 | « Trop de tentatives » à la connexion | Attendez une minute, puis ressaisissez le mot de passe sans erreur. |
 | Les autres ordinateurs n'ouvrent pas LAKOLI | Normal avec cette installation : voir section 6. |
 | Un code de vérification est demandé | L'adresse ou l'accès n'est plus local : voir section 6 et le journal. |
+| Un paiement a été saisi avec une erreur (montant, moyen, date) | **Journal de caisse**, sur la ligne du versement : icône crayon **Corriger**. Saisissez les bonnes valeurs et le motif : l'ancien reçu reste visible, barré, et un nouveau reçu est créé (à réimprimer avec l'icône imprimante et à remettre à la famille). Mauvais élève ou paiement en trop : icône **Annuler**, puis enregistrez le bon paiement. Jour de caisse déjà arrêté : rouvrez d'abord le dernier arrêté (onglet « Arrêté de caisse »). |
 | Mot de passe oublié (un utilisateur) | Le fondateur ou le directeur le réinitialise dans Paramètres > Utilisateurs & rôles. |
 | Mot de passe PostgreSQL (`postgres`) oublié | Script `reinitialiser-mot-de-passe-postgres.ps1` : voir ci-dessous. |
 | Détail technique d'une erreur | Journaux : `C:\LAKOLI\app\storage\logs\` (application, fichier du jour) et `C:\LAKOLI\logs\` (serveur web, PHP, services). |

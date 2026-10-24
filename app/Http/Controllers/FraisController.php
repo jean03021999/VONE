@@ -368,6 +368,156 @@ class FraisController extends Controller
     }
 
     /**
+     * Corrige un versement saisi avec une erreur (montant d'un frais, moyen ou date), en une
+     * operation : ses paiements sont annules (restent visibles, barres, motif « Corrigé ») puis le
+     * versement est reenregistre avec les bonnes valeurs sous une nouvelle reference, reparti comme
+     * a l'encaissement (tranche reglee d'abord, puis les suivantes). Meme eleve et memes frais ; un
+     * frais peut passer a 0. Le caissier d'origine est conserve ; l'auteur de la correction est
+     * celui de l'annulation. Jours de caisse arretes refuses (ancienne et nouvelle date).
+     */
+    public function corrigerPaiements(Request $request)
+    {
+        $request->validate([
+            'paiement_ids' => 'required|array|min:1',
+            'paiement_ids.*' => 'integer',
+            'lignes' => 'required|array|min:1',
+            'lignes.*.frais_eleve_id' => 'required|integer',
+            'lignes.*.montant' => 'required|numeric|min:0',
+            'moyen_paiement' => 'required|in:especes,mobile_money,virement,cheque',
+            'date_paiement' => 'required|date|before_or_equal:today',
+            'motif' => 'required|string|min:3|max:255',
+        ], [
+            'motif.required' => 'Indiquez le motif de la correction.',
+            'motif.min' => 'Indiquez le motif de la correction.',
+            'date_paiement.before_or_equal' => 'La date du paiement ne peut pas être dans le futur.',
+        ]);
+
+        $etablissementId = $request->user()->etablissement_id;
+        $paiements = Paiement::whereIn('id', $request->paiement_ids)
+            ->whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId))
+            ->with(['echeanceEleve', 'eleve'])
+            ->orderBy('id')
+            ->get();
+
+        if ($paiements->count() !== count(array_unique($request->paiement_ids))) {
+            return response()->json(['message' => 'Paiement introuvable.'], 404);
+        }
+        if ($paiements->whereNotNull('annule_le')->isNotEmpty()) {
+            return response()->json(['message' => 'Ce versement est annulé : il ne peut plus être corrigé.'], 422);
+        }
+        if ($paiements->contains('moyen_paiement', Paiement::MOYEN_REPRISE) || $paiements->pluck('eleve_id')->unique()->count() !== 1) {
+            return response()->json(['message' => 'Ce versement ne peut pas être corrigé.'], 422);
+        }
+        if ($paiements->contains(fn ($p) => ! $p->echeanceEleve)) {
+            return response()->json(['message' => "Les frais de ce versement n'existent plus : annulez-le, puis enregistrez le bon paiement."], 422);
+        }
+
+        // Nouveau montant par frais : exactement les frais du versement, une fois chacun.
+        $anciens = $paiements->groupBy(fn ($p) => $p->echeanceEleve->frais_eleve_id);
+        $nouveaux = collect($request->lignes)->mapWithKeys(fn ($l) => [(int) $l['frais_eleve_id'] => round((float) $l['montant'], 2)]);
+        if ($nouveaux->count() !== count($request->lignes) || $nouveaux->keys()->sort()->values()->all() !== $anciens->keys()->map(fn ($k) => (int) $k)->sort()->values()->all()) {
+            return response()->json(['message' => 'Les frais indiqués ne correspondent pas à ce versement.'], 422);
+        }
+        $total = $nouveaux->sum();
+        if ($total < 1) {
+            return response()->json(['message' => 'Le montant corrigé est nul : annulez plutôt le versement.'], 422);
+        }
+
+        $premier = $paiements->first();
+        $inchange = $request->moyen_paiement === $premier->moyen_paiement
+            && $request->date_paiement === substr((string) $premier->date_paiement, 0, 10)
+            && $anciens->every(fn ($groupe, $fraisId) => abs($groupe->sum(fn ($p) => (float) $p->montant) - $nouveaux[(int) $fraisId]) < 0.01);
+        if ($inchange) {
+            return response()->json(['message' => 'Aucune modification : changez le montant, le moyen ou la date.'], 422);
+        }
+
+        foreach ($paiements->pluck('date_paiement')->push($request->date_paiement)->unique() as $jour) {
+            \App\Models\ArreteCaisse::exigerJourOuvert($etablissementId, $jour);
+        }
+
+        $motif = trim($request->motif);
+        $ancienneReference = $paiements->pluck('reference')->filter()->first()
+            ?? 'REC-' . substr((string) $premier->date_paiement, 0, 10) . '-' . $premier->id;
+        $ancienTotal = (float) $paiements->sum('montant');
+
+        $resultat = DB::transaction(function () use ($request, $paiements, $anciens, $nouveaux, $motif, $premier, $etablissementId, $ancienneReference, $ancienTotal, $total) {
+            $echeancesParFrais = \App\Models\EcheanceEleve::whereIn('frais_eleve_id', $anciens->keys())
+                ->orderBy('date_limite')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->groupBy('frais_eleve_id');
+
+            $reference = Numerotation::referenceVersement($etablissementId, 'PAY');
+            Paiement::whereIn('id', $paiements->pluck('id'))->update([
+                'annule_le' => now(),
+                'annule_par' => $request->user()->id,
+                'motif_annulation' => "Corrigé (nouveau reçu {$reference}) : {$motif}",
+            ]);
+
+            $crees = [];
+            foreach ($anciens as $fraisId => $groupe) {
+                $montant = $nouveaux[(int) $fraisId];
+                // Solde lu en base a chaque acces : sans les paiements qu'on vient d'annuler.
+                $echeances = $echeancesParFrais[$fraisId];
+                $reste = $echeances->sum(fn ($e) => max(0, (float) $e->solde));
+                if ($montant > $reste + 0.001) {
+                    abort(422, 'Le montant de ' . ($groupe->first()->echeanceEleve->fraisEleve?->typeFrais?->nom ?? 'ces frais')
+                        . ' dépasse le reste à payer (' . number_format($reste, 0, ',', ' ') . ' GNF).');
+                }
+                // Tranche reglee a l'origine d'abord, puis les suivantes, comme a l'encaissement.
+                $depart = $groupe->first()->echeance_eleve_id;
+                foreach ($echeances->sortBy(fn ($e) => $e->id === $depart ? 0 : 1)->values() as $ech) {
+                    if ($montant <= 0) {
+                        break;
+                    }
+                    $solde = max(0, (float) $ech->solde);
+                    if ($solde <= 0) {
+                        continue;
+                    }
+                    $part = min($solde, $montant);
+                    $crees[] = Paiement::create([
+                        'eleve_id' => $premier->eleve_id,
+                        'echeance_eleve_id' => $ech->id,
+                        'libelle' => $ech->libelle,
+                        'montant' => $part,
+                        'moyen_paiement' => $request->moyen_paiement,
+                        'date_paiement' => $request->date_paiement,
+                        'reference' => $reference,
+                        'caissier_id' => $premier->caissier_id ?? $request->user()->id,
+                        'observation' => "Correction du reçu {$ancienneReference} par {$request->user()->name} : {$motif}",
+                    ]);
+                    $montant -= $part;
+                }
+            }
+
+            \App\Models\HistoriqueEleve::create([
+                'eleve_id' => $premier->eleve_id,
+                'action' => 'correction_paiement',
+                'description' => "Correction du reçu {$ancienneReference} (" . number_format($ancienTotal, 0, ',', ' ')
+                    . " GNF) : nouveau reçu {$reference} (" . number_format($total, 0, ',', ' ') . ' GNF)',
+                'montant' => $total,
+                'motif' => $motif,
+                'user_id' => $request->user()->id,
+            ]);
+
+            return ['reference' => $reference, 'paiements' => $crees];
+        });
+
+        return response()->json([
+            'message' => "Versement corrigé : nouveau reçu {$resultat['reference']} de " . number_format($total, 0, ',', ' ') . ' GNF.',
+            'reference' => $resultat['reference'],
+            'montant' => $total,
+            'paiements' => collect($resultat['paiements'])->map(fn ($p) => [
+                'id' => $p->id,
+                'echeance_eleve_id' => $p->echeance_eleve_id,
+                'libelle' => $p->libelle,
+                'montant' => (float) $p->montant,
+            ])->values(),
+        ]);
+    }
+
+    /**
      * Annule une inscription / reinscription faite par erreur, en une operation : les paiements non
      * annules de ces frais sont annules (comme depuis le journal : restent visibles, barres, auteur
      * et motif), puis les frais d'inscription et leurs echeances sont retires de l'eleve (les
@@ -621,6 +771,8 @@ class FraisController extends Controller
                 'libelle' => $p->libelle,
                 'type_frais' => $p->echeanceEleve?->fraisEleve?->typeFrais?->nom,
                 'echeance_eleve_id' => $p->echeance_eleve_id,
+                'frais_eleve_id' => $p->echeanceEleve?->frais_eleve_id,
+                'observation' => $p->observation,
                 'caissier' => $p->caissier?->name,
                 // Paiement annule : reste visible dans le journal mais hors des totaux.
                 'annule' => $p->annule_le !== null,
@@ -658,8 +810,10 @@ class FraisController extends Controller
         foreach ($paiements as $p) {
             $courant = count($groupes) ? $groupes[count($groupes) - 1] : null;
             $dernier = $courant ? $courant[count($courant) - 1] : null;
+            // Un versement annule (ex. remplace par sa correction) ne se melange pas a un valide.
             $memePassage = $dernier
                 && $dernier->eleve_id === $p->eleve_id
+                && ($dernier->annule_le === null) === ($p->annule_le === null)
                 && (
                     ($p->reference && $p->reference === $dernier->reference)
                     || ($p->created_at && $dernier->created_at

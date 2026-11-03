@@ -62,6 +62,117 @@ class FraisService
     }
 
     /**
+     * Cree les frais et echeances manquants pour les eleves de la classe qui n'ont pas encore de
+     * FraisEleve de ce type (nouveaux inscrits notamment). Retourne le nombre de frais crees.
+     */
+    public function appliquerGrilleAuxEleves(GrilleTarifaire $grille): int
+    {
+        $grille->loadMissing('echeances', 'typeFrais');
+        if (self::estFraisParEleve($grille) || ! $grille->actif) {
+            return 0;
+        }
+
+        $eleves = $this->elevesViseesParGrille($grille);
+
+        // Grille "tous" : les eleves dont le public (nouveau / ancien) a sa propre grille active
+        // du meme type la recoivent en priorite (meme regle que appliquerGrillesAInscription).
+        if ($grille->applicable_a === 'tous') {
+            $publicsCouverts = GrilleTarifaire::where('classe_id', $grille->classe_id)
+                ->where('type_frais_id', $grille->type_frais_id)
+                ->where('session_scolaire_id', $grille->session_scolaire_id)
+                ->where('actif', true)
+                ->whereIn('applicable_a', ['nouveau', 'ancien'])
+                ->pluck('applicable_a')
+                ->all();
+            $eleves = $eleves->reject(fn ($e) => in_array($this->publicEleve($e), $publicsCouverts, true));
+        }
+
+        $crees = 0;
+        foreach ($eleves as $eleve) {
+            if ($this->creerFraisDepuisGrille($eleve->id, $grille, $eleve->inscriptionActive?->id)) {
+                $crees++;
+            }
+        }
+
+        return $crees;
+    }
+
+    /** 'ancien' pour une reinscription, 'nouveau' sinon. */
+    private function publicEleve($eleve): string
+    {
+        return $eleve->inscriptionActive?->type_inscription === 'reinscription' ? 'ancien' : 'nouveau';
+    }
+
+    /** Eleves inscrits dans la classe de la grille, restreints au public vise (nouveaux / anciens). */
+    private function elevesViseesParGrille(GrilleTarifaire $grille)
+    {
+        $eleves = \App\Models\Eleve::whereHas('inscriptionActive', fn ($q) => $q->where('classe_id', $grille->classe_id)->where('statut', 'active'))
+            ->with('inscriptionActive')
+            ->get();
+
+        if (in_array($grille->applicable_a, ['nouveau', 'ancien'], true)) {
+            $eleves = $eleves->filter(fn ($e) => $this->publicEleve($e) === $grille->applicable_a)->values();
+        }
+
+        return $eleves;
+    }
+
+    /**
+     * Apres une modification de grille : les eleves factures par cette grille qui n'ont encore rien
+     * paye dessus recoivent le nouveau tarif ($echeances : libelle, montant, date_limite) ; ceux qui
+     * ont deja paye (meme un paiement annule) ou dont le frais est personnalise gardent leur
+     * echeancier. Retourne ['mis_a_jour' => n, 'conserves' => n].
+     */
+    public function reporterTarifSurEleves(GrilleTarifaire $grille, float $montant, array $echeances): array
+    {
+        $frais = FraisEleve::where('grille_tarifaire_id', $grille->id)->with('echeances:id,frais_eleve_id')->get();
+        // Tout paiement, meme annule, est conserve : refaire l'echeancier l'effacerait (cascade).
+        $avecPaiement = Paiement::whereIn('echeance_eleve_id', $frais->flatMap->echeances->pluck('id'))
+            ->join('echeances_eleves', 'echeances_eleves.id', '=', 'paiements.echeance_eleve_id')
+            ->distinct()
+            ->pluck('echeances_eleves.frais_eleve_id')
+            ->flip();
+
+        $misAJour = 0;
+        $conserves = 0;
+        foreach ($frais as $f) {
+            if (isset($avecPaiement[$f->id]) || $f->motif_personnalisation) {
+                $conserves++;
+                continue;
+            }
+            $f->update(['montant_total' => $montant, 'montant_original' => $montant]);
+            $f->echeances()->delete();
+            foreach ($echeances as $ech) {
+                $f->echeances()->create([
+                    'libelle' => $ech['libelle'],
+                    'montant' => $ech['montant'],
+                    'date_limite' => $ech['date_limite'],
+                ]);
+            }
+            $misAJour++;
+        }
+
+        return ['mis_a_jour' => $misAJour, 'conserves' => $conserves];
+    }
+
+    /**
+     * Nombre d'eleves ayant paye sur ces grilles. Sans $annulesCompris, seuls les paiements valides
+     * comptent ; avec, un paiement annule compte aussi (sa trace disparaitrait avec le frais).
+     */
+    public function nombrePayeurs(iterable $grilleIds, bool $annulesCompris = false): int
+    {
+        $fraisIds = FraisEleve::whereIn('grille_tarifaire_id', collect($grilleIds))->pluck('id');
+        if ($fraisIds->isEmpty()) {
+            return 0;
+        }
+
+        return Paiement::whereHas('echeanceEleve', fn ($q) => $q->whereIn('frais_eleve_id', $fraisIds))
+            ->when(! $annulesCompris, fn ($q) => $q->whereNull('annule_le'))
+            ->distinct('eleve_id')
+            ->count('eleve_id');
+    }
+
+    /**
      * Applique a un eleve qui vient d'etre inscrit les grilles actives de sa classe pour la session
      * (scolarite, etc. — hors inscription/reinscription). La grille propre a son public (nouveau ou
      * ancien eleve) passe avant la grille "tous" du meme type. Retourne le nombre de frais crees.

@@ -10,7 +10,7 @@ class GrilleTarifaire extends Model
 
     protected $fillable = [
         'etablissement_id', 'session_scolaire_id', 'classe_id', 'type_frais_id', 'montant',
-        'applicable_a', 'actif',
+        'applicable_a', 'actif', 'fiche_tarifaire_id',
     ];
 
     protected $casts = [

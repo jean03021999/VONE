@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\EleveController;
 use App\Http\Controllers\ClasseController;
+use App\Http\Controllers\FicheTarifaireController;
 use App\Http\Controllers\EleveImportController;
 use App\Http\Controllers\EnseignantController;
 use App\Http\Controllers\MatiereController;
@@ -105,6 +106,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/frais/types', [FraisController::class, 'typesFrais'])->middleware('permission:frais.voir');
     Route::post('/frais/types', [FraisController::class, 'storeTypeFrais'])->middleware('permission:frais.creer');
     Route::get('/frais/grilles', [FraisController::class, 'grilles'])->middleware('permission:frais.voir');
+    Route::get('/frais/fiches', [FicheTarifaireController::class, 'index'])->middleware('permission:frais.voir');
+    Route::post('/frais/fiches', [FicheTarifaireController::class, 'store'])->middleware('permission:frais.creer');
+    Route::put('/frais/fiches/{id}', [FicheTarifaireController::class, 'update'])->middleware('permission:frais.creer');
     Route::post('/frais/grilles', [FraisController::class, 'storeGrille'])->middleware('permission:frais.creer');
     Route::post('/frais/grilles/{id}/synchroniser', [FraisController::class, 'synchroniserGrille'])->middleware('permission:frais.creer');
     Route::post('/frais/grilles/{id}/basculer', [FraisController::class, 'basculerGrille'])->middleware('permission:frais.creer');

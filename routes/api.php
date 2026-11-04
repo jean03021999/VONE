@@ -44,7 +44,7 @@ Route::get('/user', function (Request $request) {
         // agrement, slogan) et alerte de capacite d'accueil.
         'etablissement' => $user->etablissement ? $user->etablissement->only([
             'id', 'nom', 'ville', 'quartier', 'adresse', 'telephone', 'telephone_secondaire', 'whatsapp_relance', 'email',
-            'agrement', 'slogan', 'capacite_accueil', 'logo_url',
+            'agrement', 'slogan', 'capacite_accueil', 'logo_url', 'seuil_annulation_montant', 'seuil_annulation_delai_heures',
         ]) : null,
         'session' => $session?->libelle,
         // Essai : jours restants, rappel (7 derniers jours), lecture seule une fois termine.
@@ -117,6 +117,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/frais/types/{id}', [FraisController::class, 'updateTypeFrais'])->middleware('permission:frais.creer');
     Route::delete('/frais/types/{id}', [FraisController::class, 'destroyTypeFrais'])->middleware('permission:frais.creer');
     Route::post('/frais/paiements/annuler', [FraisController::class, 'annulerPaiements'])->middleware('permission:frais.paiement.enregistrer');
+    Route::post('/frais/annulations/justifier', [FraisController::class, 'justifierAnnulation'])->middleware('permission:frais.controle.gerer');
     Route::post('/frais/paiements/corriger', [FraisController::class, 'corrigerPaiements'])->middleware('permission:frais.paiement.enregistrer');
     Route::post('/frais/appliquer-inscription', [FraisController::class, 'appliquerInscription'])->middleware('permission:frais.creer');
     Route::post('/frais/annuler-inscription', [FraisController::class, 'annulerInscription'])->middleware('permission:frais.paiement.enregistrer');
@@ -126,7 +127,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/frais/paiements', [FraisController::class, 'paiements'])->middleware('permission:frais.voir');
     Route::get('/frais/stats-par-classe', [FraisController::class, 'statsParClasse'])->middleware('permission:frais.voir');
     Route::get('/frais/relances', [RelanceController::class, 'index'])->middleware('permission:frais.voir');
-    Route::post('/frais/relances', [RelanceController::class, 'store'])->middleware('permission:frais.paiement.enregistrer');
+    Route::post('/frais/relances', [RelanceController::class, 'store'])->middleware('permission:frais.relances.enregistrer');
     Route::get('/frais/relances/eleve/{eleveId}', [RelanceController::class, 'historique'])->middleware('permission:frais.voir');
 });
 
@@ -205,6 +206,7 @@ Route::get('/utilisateurs/{id}/photo', [ParametresController::class, 'photo'])->
 Route::middleware(['auth:sanctum'])->prefix('parametres')->group(function () {
     Route::get('/', [ParametresController::class, 'index']);
     Route::put('/etablissement', [ParametresController::class, 'updateEtablissement']);
+    Route::put('/seuils-controle', [ParametresController::class, 'updateSeuilsControle']);
     Route::post('/etablissement/logo', [ParametresController::class, 'enregistrerLogo']);
     Route::delete('/etablissement/logo', [ParametresController::class, 'supprimerLogo']);
     Route::put('/profil', [ParametresController::class, 'updateProfil']);

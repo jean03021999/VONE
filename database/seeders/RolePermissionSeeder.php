@@ -27,6 +27,7 @@ class RolePermissionSeeder extends Seeder
             'notes.voir', 'notes.saisir', 'notes.soumettre', 'notes.valider', 'notes.publier',
             'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
             'frais.voir', 'frais.creer', 'frais.paiement.enregistrer', 'frais.stats.voir',
+            'frais.relances.enregistrer', 'frais.controle.gerer',
             'abonnement.voir', 'abonnement.gerer',
             'etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer',
         ];
@@ -40,7 +41,7 @@ class RolePermissionSeeder extends Seeder
                 'enseignants.salaires.voir', 'enseignants.salaires.gerer',
                 'classes.voir',
                 'emploi_du_temps.voir',
-                'frais.voir', 'frais.creer', 'frais.paiement.enregistrer',
+                'frais.voir', 'frais.creer', 'frais.paiement.enregistrer', 'frais.relances.enregistrer',
             ],
             'Directeur' => [
                 'eleves.voir',
@@ -63,7 +64,7 @@ class RolePermissionSeeder extends Seeder
                 'periodes.gerer',
                 'notes.voir', 'notes.saisir', 'notes.soumettre', 'notes.valider', 'notes.publier',
                 'bulletins.voir', 'bulletins.generer', 'bulletins.valider', 'bulletins.publier',
-                'frais.voir', 'frais.creer', 'frais.paiement.enregistrer', 'frais.stats.voir',
+                'frais.voir', 'frais.creer', 'frais.paiement.enregistrer', 'frais.stats.voir', 'frais.relances.enregistrer',
                 'etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer',
             ],
             'Censeur' => [
@@ -77,7 +78,8 @@ class RolePermissionSeeder extends Seeder
             ],
             'Fondateur' => [
                 'eleves.voir', 'enseignants.voir', 'emploi_du_temps.voir', 'bulletins.voir',
-                'frais.stats.voir', 'abonnement.voir', 'abonnement.gerer',
+                'frais.voir', 'frais.stats.voir', 'frais.relances.enregistrer', 'frais.controle.gerer',
+                'abonnement.voir', 'abonnement.gerer',
                 'etablissement.gerer', 'sessions.gerer', 'utilisateurs.gerer', 'roles.gerer',
             ],
         ];

@@ -129,7 +129,7 @@ ordre.
 
 | Rôle | Peut faire |
 |---|---|
-| Fondateur | Paramètres (établissement, année scolaire, comptes), statistiques financières, consultation |
+| Fondateur | Espace Fondateur : tableau de bord financier, recouvrement et relances WhatsApp, journal de caisse en lecture seule (il n'encaisse pas), contrôle des annulations, rapports ; Paramètres (établissement, année scolaire, comptes, seuils d'alerte) |
 | Directeur | Classes, matières, emploi du temps, notes et bulletins (validation) |
 | Proviseur | Comme le directeur, plus enseignants, salaires et frais |
 | Censeur | Classes, emploi du temps, saisie des notes |

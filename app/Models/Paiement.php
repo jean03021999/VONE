@@ -9,10 +9,12 @@ class Paiement extends Model
     protected $fillable = [
         'eleve_id', 'echeance_eleve_id', 'libelle', 'montant', 'moyen_paiement', 'date_paiement',
         'reference', 'caissier_id', 'observation', 'annule_le', 'annule_par', 'motif_annulation',
+        'annulation_justifiee_le', 'annulation_justifiee_par',
     ];
 
     protected $casts = [
         'annule_le' => 'datetime',
+        'annulation_justifiee_le' => 'datetime',
     ];
 
     /** Paiement encaisse avant LAKOLI et repris a l'import Excel : hors caisse. */

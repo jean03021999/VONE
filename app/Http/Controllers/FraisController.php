@@ -703,6 +703,9 @@ class FraisController extends Controller
                 'annule_le' => $p->annule_le?->toIso8601String(),
                 'annule_par' => $p->annulateur?->name,
                 'motif_annulation' => $p->motif_annulation,
+                // Espace Fondateur : delai entre l'encaissement et l'annulation, verification de l'annulation.
+                'cree_le' => $p->created_at?->toIso8601String(),
+                'annulation_justifiee_le' => $p->annulation_justifiee_le?->toIso8601String(),
                 'eleve' => $p->eleve ? [
                     'id' => $p->eleve->id,
                     'nom_complet' => "{$p->eleve->nom} {$p->eleve->prenom}",
@@ -754,6 +757,24 @@ class FraisController extends Controller
         }
 
         return $groupes;
+    }
+
+    /** Controle du Fondateur : une annulation examinee est marquee justifiee (trace : date et auteur). */
+    public function justifierAnnulation(Request $request)
+    {
+        $donnees = $request->validate([
+            'paiement_ids' => 'required|array|min:1|max:200',
+            'paiement_ids.*' => 'integer',
+        ]);
+        $etablissementId = $request->user()->etablissement_id;
+
+        $nombre = Paiement::whereIn('id', $donnees['paiement_ids'])
+            ->whereNotNull('annule_le')
+            ->whereNull('annulation_justifiee_le')
+            ->whereHas('eleve', fn ($q) => $q->where('etablissement_id', $etablissementId))
+            ->update(['annulation_justifiee_le' => now(), 'annulation_justifiee_par' => $request->user()->id]);
+
+        return response()->json(['nombre' => $nombre]);
     }
 
     public function paiementsRecent(Request $request)

@@ -14,6 +14,7 @@ class Etablissement extends Model
         'telephone', 'email', 'logo_path', 'langue_principale',
         'devise', 'statut', 'date_fin_essai',
         'quartier', 'region', 'prefecture', 'coordonnees_gps', 'telephone_secondaire', 'whatsapp_relance',
+        'seuil_annulation_montant', 'seuil_annulation_delai_heures',
         'cycles', 'capacite_accueil', 'agrement', 'slogan',
     ];
 

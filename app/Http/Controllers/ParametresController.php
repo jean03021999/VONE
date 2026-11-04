@@ -99,6 +99,20 @@ class ParametresController extends Controller
         return response()->json($this->ficheEtablissement($etablissement->fresh()));
     }
 
+    /** Seuils d'alerte des annulations (Espace Fondateur, page Controle). */
+    public function updateSeuilsControle(Request $request)
+    {
+        abort_unless($request->user()->aPermission('frais.controle.gerer'), 403, "Votre rôle ne permet pas de régler les seuils d'alerte.");
+        $donnees = $request->validate([
+            'seuil_annulation_montant' => 'required|integer|min:0|max:100000000000',
+            'seuil_annulation_delai_heures' => 'required|integer|min:1|max:8760',
+        ]);
+        $etablissement = $request->user()->etablissement;
+        $etablissement->update($donnees);
+
+        return response()->json($this->ficheEtablissement($etablissement->fresh()));
+    }
+
     public function enregistrerLogo(Request $request)
     {
         $this->exigerDroit($request->user(), 'etablissement.gerer');
@@ -367,6 +381,8 @@ class ParametresController extends Controller
             'statut' => $e->statut,
             'date_fin_essai' => $e->date_fin_essai?->toDateString(),
             'logo_url' => $e->logo_url,
+            'seuil_annulation_montant' => $e->seuil_annulation_montant,
+            'seuil_annulation_delai_heures' => $e->seuil_annulation_delai_heures,
         ];
     }
 

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
  * Decide si la connexion exige le code de verification (OTP) apres le mot de passe.
@@ -11,15 +12,24 @@ use Illuminate\Support\Facades\Log;
  * OTP_ACTIF=false (installation sur un seul poste) n'est respecte que si l'application est servie
  * uniquement en local : APP_URL en 127.0.0.1 / localhost ET requete venue de ce meme PC, sans
  * passage par un relais. Dans tout autre cas, l'OTP est reactive et l'anomalie journalisee.
+ *
+ * TAILSCALE_ACTIF=true (mode active par deploiement/activer-acces-distant.ps1) : les connexions de
+ * la plage Tailscale passent sans OTP, car Tailscale a deja authentifie l'appareil. Le mot de passe
+ * et la limitation des tentatives restent exiges. Seule l'adresse de la connexion (REMOTE_ADDR)
+ * compte : aucun en-tete envoye par le visiteur ne peut la remplacer.
  */
 class VerificationConnexion
 {
     private const HOTES_LOCAUX = ['127.0.0.1', 'localhost', '::1', '[::1]'];
+    private const PLAGE_TAILSCALE = '100.64.0.0/10';
 
     public static function otpRequis(Request $request): bool
     {
         // Poste de developpement : comportement historique, sans OTP.
         if (app()->environment('local')) {
+            return false;
+        }
+        if (self::requeteTailscale($request)) {
             return false;
         }
         if (config('lakoli.otp_actif')) {
@@ -45,6 +55,13 @@ class VerificationConnexion
         $hote = parse_url((string) config('app.url'), PHP_URL_HOST);
 
         return in_array(strtolower((string) $hote), self::HOTES_LOCAUX, true);
+    }
+
+    private static function requeteTailscale(Request $request): bool
+    {
+        return config('lakoli.tailscale_actif')
+            && IpUtils::checkIp((string) $request->server('REMOTE_ADDR'), self::PLAGE_TAILSCALE)
+            && ! $request->headers->has('X-Forwarded-For');
     }
 
     private static function requeteLocale(Request $request): bool

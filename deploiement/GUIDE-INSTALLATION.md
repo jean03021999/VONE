@@ -155,13 +155,54 @@ utilise le même PC : il faut donc protéger aussi l'accès à Windows.
    avec « À la reprise, afficher l'écran d'ouverture de session » coché (5 minutes, par exemple).
 4. **Se déconnecter de LAKOLI** en fin de travail, surtout avant de laisser le PC à un collègue.
 
-## 6. Accès depuis d'autres ordinateurs (plus tard)
+## 6. Accès depuis d'autres ordinateurs
 
 Cette installation n'accepte que les connexions venues du PC lui-même. Le serveur n'écoute que sur
 127.0.0.1. Si on l'ouvre au réseau sans autre changement, LAKOLI réactive de lui-même le code de
 vérification et le signale dans son journal.
 
-Pour ouvrir LAKOLI aux autres postes de l'école, il faudra, avec l'équipe LAKOLI :
+### Accès à distance par Tailscale (désactivé par défaut)
+
+Pour utiliser LAKOLI depuis un autre appareil de **votre** réseau Tailscale. Rien n'est ouvert sur
+le réseau de l'école ni sur internet.
+
+**Activer** (Tailscale installé et connecté sur ce PC) : PowerShell en administrateur, dans le
+dossier du paquet :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File activer-acces-distant.ps1
+```
+
+Le script affiche l'adresse à ouvrir depuis l'autre appareil, par exemple
+**http://100.107.132.74:8080**. Utilisez bien cette adresse en chiffres. Sur ce PC, le raccourci et
+http://127.0.0.1:8080 continuent de fonctionner comme avant.
+
+**Désactiver** : même chose avec `desactiver-acces-distant.ps1`. Tout revient à l'état initial.
+
+Ce que cela change :
+
+| Connexion venant de | Mot de passe | Tentatives limitées | Code de vérification |
+|---|---|---|---|
+| Ce PC (127.0.0.1) | oui | oui | non, comme avant |
+| Réseau Tailscale (100.64.0.0/10) | oui | oui | non : Tailscale a déjà authentifié l'appareil |
+| Toute autre adresse | le serveur n'y écoute pas ; le code serait exigé | oui | oui |
+
+À savoir :
+- **Tout appareil de votre réseau Tailscale peut afficher la page de connexion.** N'y laissez que
+  vos appareils, retirez ceux que vous n'utilisez plus, et ne partagez pas ce PC avec d'autres
+  comptes Tailscale sans restreindre leurs droits (ACL).
+- Le PC de l'école doit être allumé, et Tailscale connecté. Après un redémarrage, l'accès distant
+  revient seul dès que Tailscale est connecté (le service réessaie toutes les 30 secondes) ;
+  LAKOLI reste utilisable sur le PC entre-temps.
+- La liaison est chiffrée par Tailscale, même si l'adresse commence par `http://`. Le navigateur
+  peut donc afficher « Non sécurisé » : c'est normal avec une adresse en chiffres.
+- Une mise à jour (`installer.ps1 -MiseAJour`) conserve ce réglage. Si l'adresse Tailscale du PC
+  change, relancez `activer-acces-distant.ps1`.
+- Ne modifiez pas `TAILSCALE_ACTIF` à la main : passez par les deux scripts.
+
+### Ouvrir LAKOLI aux autres postes de l'école (plus tard)
+
+Pour cela, il faudra, avec l'équipe LAKOLI :
 1. configurer l'envoi d'e-mails dans `C:\LAKOLI\app\.env` (`MAIL_…`), pour que le code de
    vérification parvienne aux utilisateurs ;
 2. repasser `OTP_ACTIF=true` et mettre l'adresse réseau du PC dans `APP_URL` ;

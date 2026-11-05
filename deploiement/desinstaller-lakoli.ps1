@@ -39,7 +39,7 @@ $app = Join-Path $Racine "app"
 $ancienneApp = Join-Path $Laragon "www\lakoli"
 $site = Join-Path $Laragon "etc\apache2\sites-enabled\lakoli-ecole.conf"
 $nomTache = "$Nom - Sauvegarde"
-$services = "$Nom-Web", "$Nom-PHP-1", "$Nom-PHP-2"
+$services = "$Nom-Distant", "$Nom-Web", "$Nom-PHP-1", "$Nom-PHP-2"
 $dossiers = if ($DossiersRaccourcis.Count) { $DossiersRaccourcis } else {
     @([Environment]::GetFolderPath("CommonDesktopDirectory"), [Environment]::GetFolderPath("CommonPrograms"))
 }
@@ -162,6 +162,7 @@ foreach ($dossier in $dossiers) {
 }
 $bilan["Raccourcis LAKOLI"] = if ($raccourcisRestants) { "ÉCHEC : $($raccourcisRestants -join ', ')" } else { "supprimés" }
 
+Remove-NetFirewallRule -DisplayName "$Nom acces distant Tailscale" -ErrorAction SilentlyContinue
 $regles = Get-NetFirewallRule -DisplayName "LAKOLI (port *" -ErrorAction SilentlyContinue
 if ($regles) { $regles | Remove-NetFirewallRule -ErrorAction SilentlyContinue }
 $bilan["Règle de pare-feu (anciens paquets)"] = if (Get-NetFirewallRule -DisplayName "LAKOLI (port *" -ErrorAction SilentlyContinue) { "ÉCHEC : toujours présente" } else { "aucune" }

@@ -8,7 +8,8 @@
 #   outils\     WinSW (services Windows, licence MIT) et Microsoft Visual C++ Redistributable
 #               (redistribuable gratuitement, nécessaire à PHP)
 #   installer.ps1, sauvegarde.ps1, restaurer.ps1, verifier.ps1, desinstaller-lakoli.ps1,
-#   reinitialiser-mot-de-passe-postgres.ps1, GUIDE-INSTALLATION.md
+#   reinitialiser-mot-de-passe-postgres.ps1, activer-acces-distant.ps1, desactiver-acces-distant.ps1,
+#   GUIDE-INSTALLATION.md
 #
 # Seuls les fichiers COMMITÉS du backend sont pris (git archive) : jamais le .env ni les données locales.
 # Les logiciels sont téléchargés une fois dans $Outils, puis vérifiés à chaque paquet (empreinte
@@ -98,7 +99,7 @@ New-Item -ItemType Directory -Force (Join-Path $sortie "outils") | Out-Null
 foreach ($f in $logiciels[2].Fichier, $logiciels[3].Fichier) { Copy-Item (Join-Path $Outils $f) (Join-Path $sortie "outils") }
 
 Etape "Scripts et guide"
-foreach ($f in "installer.ps1", "sauvegarde.ps1", "restaurer.ps1", "verifier.ps1", "desinstaller-lakoli.ps1", "reinitialiser-mot-de-passe-postgres.ps1", "GUIDE-INSTALLATION.md") {
+foreach ($f in "installer.ps1", "sauvegarde.ps1", "restaurer.ps1", "verifier.ps1", "desinstaller-lakoli.ps1", "reinitialiser-mot-de-passe-postgres.ps1", "activer-acces-distant.ps1", "desactiver-acces-distant.ps1", "GUIDE-INSTALLATION.md") {
     Copy-Item (Join-Path $PSScriptRoot $f) $sortie
 }
 

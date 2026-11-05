@@ -84,9 +84,10 @@ function Externe($programme) {
     & $programme @args 2>&1 | ForEach-Object { "$_" }
 }
 function ArreterServices {
-    foreach ($s in $services) {
-        $service = Get-Service $s.Id -ErrorAction SilentlyContinue
-        if ($service -and $service.Status -ne "Stopped") { Stop-Service $s.Id -Force -ErrorAction SilentlyContinue }
+    # $Nom-Distant : accès par Tailscale, s'il a été activé (activer-acces-distant.ps1).
+    foreach ($id in @("$Nom-Distant") + @($services | ForEach-Object { $_.Id })) {
+        $service = Get-Service $id -ErrorAction SilentlyContinue
+        if ($service -and $service.Status -ne "Stopped") { Stop-Service $id -Force -ErrorAction SilentlyContinue }
     }
     # Un php-cgi resté bloqué garderait les DLL de PHP ouvertes (copie impossible).
     Get-Process php-cgi, caddy -ErrorAction SilentlyContinue |
@@ -447,6 +448,12 @@ for ($i = 0; $i -lt 30 -and -not $pret; $i++) {
     } catch { Start-Sleep -Seconds 1 }
 }
 if (-not $pret) { Echec "LAKOLI ne répond pas sur http://127.0.0.1:$Port. Journaux : $journaux et $app\storage\logs." }
+
+# Accès par Tailscale, s'il avait été activé : il reprend après la mise à jour.
+if (Get-Service "$Nom-Distant" -ErrorAction SilentlyContinue) {
+    Start-Service "$Nom-Distant" -ErrorAction SilentlyContinue
+    Write-Host "  accès distant par Tailscale : conservé (service $Nom-Distant)"
+}
 
 # --- Raccourci « LAKOLI » pour les utilisateurs ---------------------------------------------
 Etape "Raccourci LAKOLI (Bureau et menu Démarrer de tous les comptes)"

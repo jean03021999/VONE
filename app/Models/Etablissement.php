@@ -32,6 +32,21 @@ class Etablissement extends Model
     public const JOURS_RAPPEL_ESSAI = 7;
 
     /**
+     * Une ecole creee en essai sans date de fin aurait un essai illimite (etatAbonnement ne
+     * bloque jamais sans date) : on fixe alors un mois a partir de la creation, dernier jour compris.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (Etablissement $etablissement) {
+            $statut = $etablissement->statut ?? 'essai';
+            if ($statut === 'essai' && !$etablissement->date_fin_essai) {
+                $etablissement->statut = 'essai';
+                $etablissement->date_fin_essai = today()->addDays(self::JOURS_ESSAI - 1)->toDateString();
+            }
+        });
+    }
+
+    /**
      * Etat de l'abonnement pour l'application : jours restants d'essai (date de fin comprise),
      * rappel pendant les 7 derniers jours, lecture seule une fois l'essai termine ou le compte
      * suspendu (consultation et impression restent possibles, aucun enregistrement).

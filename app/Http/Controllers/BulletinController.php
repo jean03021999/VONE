@@ -187,9 +187,47 @@ class BulletinController extends Controller
         return response()->json($bulletins);
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $bulletin = Bulletin::with(['eleve', 'periode', 'lignes.matiere'])->findOrFail($id);
+        $bulletin = Bulletin::where('etablissement_id', $request->user()->etablissement_id)
+            ->with(['eleve.inscriptionActive.classe', 'periode.sessionScolaire', 'lignes.matiere'])
+            ->findOrFail($id);
+
+        // Pour le bulletin officiel A4 : classe, statistiques de la classe sur la periode et rang
+        // de l'eleve dans chaque matiere (parmi les bulletins courants de la classe).
+        $classe = $bulletin->eleve?->inscriptionActive?->classe;
+        $bulletinsClasse = collect();
+        if ($classe) {
+            $bulletinsClasse = Bulletin::where('periode_id', $bulletin->periode_id)
+                ->where('statut', 'courante')
+                ->whereIn('eleve_id', Eleve::whereHas('inscriptionActive', fn ($q) => $q->where('classe_id', $classe->id)->where('statut', 'active'))->pluck('id'))
+                ->with('lignes')
+                ->get();
+        }
+        if ($bulletinsClasse->isEmpty()) {
+            $bulletinsClasse = collect([$bulletin]);
+        }
+        $moyennes = $bulletinsClasse->map(fn ($b) => (float) $b->moyenne);
+
+        $lignes = $bulletin->lignes->map(function ($ligne) use ($bulletinsClasse) {
+            $notesMatiere = $bulletinsClasse
+                ->map(fn ($b) => $b->lignes->firstWhere('matiere_id', $ligne->matiere_id)?->moyenne_matiere)
+                ->filter(fn ($m) => $m !== null)
+                ->map(fn ($m) => (float) $m);
+            // Rang avec egalites : 1 + nombre d'eleves strictement meilleurs.
+            $ligne->setAttribute('rang', 1 + $notesMatiere->filter(fn ($m) => $m > (float) $ligne->moyenne_matiere)->count());
+            $ligne->setAttribute('moyenne_classe', $notesMatiere->isNotEmpty() ? round($notesMatiere->avg(), 2) : null);
+            return $ligne;
+        });
+        $bulletin->setRelation('lignes', $lignes);
+
+        $bulletin->setAttribute('classe', $classe ? ['id' => $classe->id, 'nom' => $classe->nom, 'niveau' => $classe->niveau] : null);
+        $bulletin->setAttribute('stats_classe', [
+            'moyenne' => round($moyennes->avg(), 2),
+            'plus_forte' => round($moyennes->max(), 2),
+            'plus_faible' => round($moyennes->min(), 2),
+        ]);
+
         return response()->json($bulletin);
     }
 }

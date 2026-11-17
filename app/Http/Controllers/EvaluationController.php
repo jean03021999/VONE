@@ -31,10 +31,23 @@ class EvaluationController extends Controller
         $vue = $request->query('vue', 'enseignant');
 
         if ($vue === 'direction') {
+            // ?tous=1 (Espace Directeur) : toutes les evaluations, du brouillon a la publication, avec
+            // le nombre de notes saisies et le dernier motif de rejet ; sinon celles a traiter.
+            $tous = $request->boolean('tous');
             $evaluations = Evaluation::whereHas('affectation.enseignant', fn($q) => $q->where('etablissement_id', $etablissementId))
-                ->whereIn('statut', ['soumis', 'valide'])
+                ->whereIn('statut', $tous ? ['brouillon', 'soumis', 'valide', 'rejete', 'publie'] : ['soumis', 'valide'])
                 ->with(['affectation.classe', 'affectation.matiere', 'affectation.enseignant'])
+                ->when($tous, fn ($q) => $q->withCount([
+                    'notes as notes_total',
+                    'notes as notes_saisies' => fn ($n) => $n->where(fn ($s) => $s->whereNotNull('valeur')->orWhere('statut_presence', '!=', 'present')),
+                ]))
+                ->orderByDesc('date_evaluation')
+                ->orderByDesc('id')
                 ->get();
+            if ($tous) {
+                $motifs = $this->derniersMotifsRejet($evaluations->where('statut', 'rejete')->pluck('id'));
+                $evaluations->each(fn ($ev) => $ev->setAttribute('motif_rejet', $motifs[$ev->id] ?? null));
+            }
         } else {
             $enseignant = $this->enseignantConnecte($request);
             if (!$enseignant) {
@@ -82,8 +95,30 @@ class EvaluationController extends Controller
 
     public function show(Request $request, $id)
     {
-        $evaluation = Evaluation::with(['affectation.classe', 'affectation.matiere', 'notes.eleve'])->findOrFail($id);
+        $evaluation = $this->evaluationDeLEtablissement($request, $id);
+        $evaluation->load(['affectation.classe', 'affectation.matiere', 'affectation.enseignant', 'periode', 'notes.eleve']);
+        if ($evaluation->statut === 'rejete') {
+            $evaluation->setAttribute('motif_rejet', $this->derniersMotifsRejet([$evaluation->id])[$evaluation->id] ?? null);
+        }
         return response()->json($evaluation);
+    }
+
+    /** Evaluation d'une classe de l'etablissement de l'utilisateur (404 sinon). */
+    private function evaluationDeLEtablissement(Request $request, $id): Evaluation
+    {
+        return Evaluation::whereHas('affectation.classe', fn ($q) => $q->where('etablissement_id', $request->user()->etablissement_id))
+            ->findOrFail($id);
+    }
+
+    /** Dernier motif de rejet de chaque evaluation : [evaluation_id => commentaire]. */
+    private function derniersMotifsRejet($ids): array
+    {
+        return HistoriqueValidation::whereIn('evaluation_id', $ids)
+            ->where('nouveau_statut', 'rejete')
+            ->orderBy('id')
+            ->get(['evaluation_id', 'commentaire'])
+            ->pluck('commentaire', 'evaluation_id')
+            ->all();
     }
 
     public function saisirNotes(Request $request, $id)
@@ -132,7 +167,10 @@ class EvaluationController extends Controller
 
     public function valider(Request $request, $id)
     {
-        $evaluation = Evaluation::findOrFail($id);
+        $evaluation = $this->evaluationDeLEtablissement($request, $id);
+        if ($evaluation->statut !== 'soumis') {
+            return response()->json(['message' => 'Seule une évaluation soumise peut être validée.'], 422);
+        }
         $ancien = $evaluation->statut;
         $evaluation->update(['statut' => 'valide']);
         HistoriqueValidation::create(['evaluation_id' => $id, 'user_id' => $request->user()->id, 'statut_precedent' => $ancien, 'nouveau_statut' => 'valide']);
@@ -142,7 +180,11 @@ class EvaluationController extends Controller
     public function rejeter(Request $request, $id)
     {
         $request->validate(['commentaire' => 'required|string']);
-        $evaluation = Evaluation::findOrFail($id);
+        $evaluation = $this->evaluationDeLEtablissement($request, $id);
+        // Publiee = verrouillee (deja dans les bulletins) : plus de rejet possible.
+        if (!in_array($evaluation->statut, ['soumis', 'valide'], true)) {
+            return response()->json(['message' => 'Seule une évaluation soumise ou validée peut être rejetée.'], 422);
+        }
         $ancien = $evaluation->statut;
         $evaluation->update(['statut' => 'rejete']);
         HistoriqueValidation::create(['evaluation_id' => $id, 'user_id' => $request->user()->id, 'statut_precedent' => $ancien, 'nouveau_statut' => 'rejete', 'commentaire' => $request->commentaire]);
@@ -161,7 +203,7 @@ class EvaluationController extends Controller
 
     public function publier(Request $request, $id)
     {
-        $evaluation = Evaluation::findOrFail($id);
+        $evaluation = $this->evaluationDeLEtablissement($request, $id);
         if ($evaluation->statut !== 'valide') {
             return response()->json(['message' => 'Seule une evaluation validee peut etre publiee.'], 422);
         }

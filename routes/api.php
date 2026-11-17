@@ -13,6 +13,7 @@ use App\Http\Controllers\FraisController;
 use App\Http\Controllers\EmploiDuTempsController;
 use App\Http\Controllers\PeriodeController;
 use App\Http\Controllers\EvaluationController;
+use App\Http\Controllers\DirectionController;
 use App\Http\Controllers\BulletinController;
 use App\Http\Controllers\AffectationController;
 use App\Http\Controllers\UtilisateurController;
@@ -163,6 +164,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('/mes-affectations', [EvaluationController::class, 'mesAffectations'])->middleware('permission:notes.voir');
     Route::get('/evaluations', [EvaluationController::class, 'index'])->middleware('permission:notes.voir');
+    // Espace Directeur : synthese du tableau de bord.
+    Route::get('/direction/synthese', [DirectionController::class, 'synthese'])->middleware('permission:notes.voir');
     Route::post('/evaluations', [EvaluationController::class, 'store'])->middleware('permission:notes.saisir');
     Route::get('/evaluations/{id}', [EvaluationController::class, 'show'])->middleware('permission:notes.voir');
     Route::put('/evaluations/{id}/notes', [EvaluationController::class, 'saisirNotes'])->middleware('permission:notes.saisir');
